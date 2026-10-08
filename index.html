@@ -1,0 +1,1398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bale Out</title>
+<meta name="description" content="Fly the copter and drop the stuntman into the hay wagon. A tribute to StuntCopter, the 1986 Macintosh game by Duane Blehm.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Bale Out">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#cdc7b8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c1b19" media="(prefers-color-scheme: dark)">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+@font-face { font-family: "Silkscreen"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/silkscreen-400.woff2") format("woff2"); }
+@font-face { font-family: "Silkscreen"; font-style: normal; font-weight: 700; font-display: swap; src: url("fonts/silkscreen-700.woff2") format("woff2"); }
+:root {
+  color-scheme: light;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+</style>
+<style>
+/* Layout: a one-screen arcade cabinet. The 1-bit playfield is a fixed 342px-tall world whose
+   width flexes from 384 to 640. Portrait puts the flight stick and DROP key on a deck under the
+   screen, landscape touch puts DROP in a side column, and mouse players get a slim key bar. */
+:root {
+  --cab: #cdc7b8;          /* cabinet plastic */
+  --cab-well: #b9b2a2;     /* recessed stick well */
+  --ink: #23211d;          /* labels on the cabinet */
+  --ink-soft: #5c574d;
+  --key: #f1ede4;          /* key caps */
+  --key-edge: #8c8574;
+  --knob: #f1ede4;         /* stick knob */
+  --hay: #d9a325;          /* the DROP key, hay gold */
+  --hay-edge: #8d6309;
+  --bezel: #1b1a18;
+  --shade: rgba(35, 33, 29, 0.28);
+  --phos: #f3f2ec;         /* screen white, same in both themes */
+  --pix: #151515;          /* screen black */
+  --font-px: "Silkscreen", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --cab: #1c1b19; --cab-well: #121110; --ink: #ece7db; --ink-soft: #a59f92;
+    --key: #383530; --key-edge: #0c0b0a; --knob: #6b665d; --hay: #e4b036; --hay-edge: #7b5607;
+    --bezel: #050505; --shade: rgba(0, 0, 0, 0.5); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --cab: #1c1b19; --cab-well: #121110; --ink: #ece7db; --ink-soft: #a59f92;
+  --key: #383530; --key-edge: #0c0b0a; --knob: #6b665d; --hay: #e4b036; --hay-edge: #7b5607;
+  --bezel: #050505; --shade: rgba(0, 0, 0, 0.5); color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html { height: 100%; box-sizing: border-box; }
+*, *::before, *::after { box-sizing: inherit; }
+body {
+  height: 100%; margin: 0; overflow: hidden;
+  background: var(--cab); color: var(--ink); font-family: var(--font-ui);
+  overscroll-behavior: none;
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+}
+#app {
+  position: relative; height: 100%;
+  padding-block: 10px;
+  padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px));
+  display: flex; gap: 12px; align-items: center; justify-content: center;
+}
+#app.tall { flex-direction: column; justify-content: flex-start; }
+#app.wide.mouse { flex-direction: column; }
+#stage {
+  position: relative; flex: none; width: 320px; height: 214px;
+  border-radius: 8px; background: var(--pix);
+  box-shadow: 0 0 0 5px var(--bezel), 0 10px 24px var(--shade);
+  touch-action: none;
+}
+#screen { display: block; width: 100%; height: 100%; border-radius: 8px; touch-action: none; }
+.mouse.playing #screen { cursor: crosshair; }
+
+#deck { flex: 1; min-height: 0; width: 100%; max-width: 560px; display: grid; gap: 12px; }
+.tall #deck {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas: "status status" "yoke drop" "keys keys";
+  align-items: center; justify-items: center; padding-top: 6px;
+}
+.wide.touch #deck {
+  flex: none; height: 100%; max-width: none;
+  grid-template-columns: 100%;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-areas: "keys" "status" "drop";
+  align-items: start; justify-items: center;
+}
+.wide.touch #drop { align-self: end; margin-bottom: 8px; }
+.wide.mouse #deck {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  gap: 10px 14px; max-width: 100%; width: auto;
+}
+.wide #yoke { display: none; }
+.wide.mouse #drop { display: none; }
+.menu-open #deck { visibility: hidden; }
+
+#status {
+  grid-area: status; margin: 0;
+  font: 400 12px/1.35 var(--font-px); letter-spacing: 0.06em;
+  color: var(--ink-soft); text-align: center; text-wrap: balance;
+}
+.wide.touch #status { font-size: 11px; }
+#yoke {
+  grid-area: yoke; position: relative;
+  width: min(100%, 230px, var(--yoke-max, 230px)); aspect-ratio: 1;
+  border-radius: 24px; background: var(--cab-well);
+  box-shadow: inset 0 3px 10px var(--shade); touch-action: none;
+}
+.yoke-ring { position: absolute; inset: 19%; border: 2px dashed var(--ink-soft); border-radius: 50%; opacity: 0.7; }
+#yokeKnob {
+  position: absolute; left: 35%; top: 35%; width: 30%; height: 30%; border-radius: 50%;
+  background: var(--knob); box-shadow: 0 5px 0 var(--key-edge);
+  transform: translate(var(--kx, 0px), var(--ky, 0px));
+}
+.yoke-label {
+  position: absolute; left: 0; right: 0; bottom: 9px; text-align: center; pointer-events: none;
+  font: 700 11px/1 var(--font-px); letter-spacing: 0.14em; color: var(--ink-soft);
+}
+.keys { grid-area: keys; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.wide.touch .keys { flex-direction: column; align-items: stretch; width: 100%; }
+.key {
+  font: 700 12px/1 var(--font-px); letter-spacing: 0.06em;
+  color: var(--ink); background: var(--key); border: 0; border-radius: 10px;
+  padding: 11px 14px 10px; box-shadow: 0 4px 0 var(--key-edge);
+  cursor: pointer; touch-action: manipulation;
+}
+.key:active, .key.is-down { transform: translateY(3px); box-shadow: 0 1px 0 var(--key-edge); }
+.key:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+#drop {
+  grid-area: drop; width: var(--drop-size, 116px); aspect-ratio: 1; border-radius: 50%;
+  background: var(--hay); color: var(--pix); font-size: 20px; letter-spacing: 0.08em;
+  box-shadow: 0 7px 0 var(--hay-edge), 0 12px 18px var(--shade);
+}
+#drop:active, #drop.is-down { transform: translateY(5px); box-shadow: 0 2px 0 var(--hay-edge), 0 4px 8px var(--shade); }
+.hint { margin: 0; max-width: 62ch; font: 12.5px/1.4 var(--font-ui); color: var(--ink-soft); text-align: center; }
+.tall .hint, .wide.touch .hint { display: none; }
+
+#sheet {
+  position: absolute; z-index: 10;
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 18px 18px 16px;
+  background: var(--phos); color: var(--pix);
+  border: 2px solid var(--pix); border-radius: 12px;
+  box-shadow: 6px 6px 0 var(--pix);
+  overflow: auto; overscroll-behavior: contain;
+}
+.sheet-title { margin: 0; font: 700 clamp(26px, 6.4vw, 38px)/1 var(--font-px); letter-spacing: 0.02em; text-wrap: balance; }
+.sheet-lede { margin: 0; font: 15px/1.45 var(--font-ui); max-width: 52ch; text-wrap: pretty; }
+.modes { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.mode {
+  display: flex; flex-direction: column; gap: 7px; text-align: left;
+  padding: 14px 14px 13px; border: 2px solid var(--pix); border-radius: 10px;
+  background: var(--phos); color: var(--pix); box-shadow: 3px 3px 0 var(--pix);
+  cursor: pointer; font: inherit; touch-action: manipulation;
+}
+.mode.primary { background: var(--pix); color: var(--phos); }
+.mode-name { font: 700 17px/1 var(--font-px); letter-spacing: 0.03em; }
+.mode-desc { font: 13.5px/1.4 var(--font-ui); }
+.row { display: flex; gap: 10px; flex-wrap: wrap; }
+.btn {
+  flex: 1 1 140px; font: 700 15px/1 var(--font-px); letter-spacing: 0.04em;
+  padding: 14px 16px 13px; border: 2px solid var(--pix); border-radius: 10px;
+  background: var(--phos); color: var(--pix); box-shadow: 3px 3px 0 var(--pix);
+  cursor: pointer; touch-action: manipulation;
+}
+.btn.primary { background: var(--pix); color: var(--phos); }
+.mode:active, .btn:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--pix); }
+.mode:focus-visible, .btn:focus-visible { outline: 3px dashed var(--pix); outline-offset: 3px; }
+.meta { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; font: 13px/1.4 var(--font-ui); }
+.meta b { font: 700 13px/1.2 var(--font-px); font-variant-numeric: tabular-nums; }
+.note { margin: 0; font: 13px/1.45 var(--font-ui); }
+.credit { margin: 0; padding-top: 10px; border-top: 2px dotted var(--pix); font: 12px/1.45 var(--font-ui); }
+.big-score { margin: 0; font: 700 36px/1 var(--font-px); font-variant-numeric: tabular-nums; }
+#sheet.compact { gap: 9px; padding: 14px 14px 12px; }
+#sheet.compact .sheet-title { font-size: 24px; }
+#sheet.compact .sheet-lede { font-size: 13.5px; }
+#sheet.compact .mode { padding: 10px 12px; gap: 5px; }
+#sheet.compact .mode-name { font-size: 15px; }
+#sheet.compact .mode-desc, #sheet.compact .note, #sheet.compact .meta { font-size: 12.5px; }
+#sheet.compact .credit { font-size: 11.5px; padding-top: 8px; }
+#sheet.compact .big-score { font-size: 28px; }
+#sheet.compact .btn { padding: 11px 14px 10px; font-size: 14px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) {
+  .key:active, .key.is-down, #drop:active, #drop.is-down, .mode:active, .btn:active { transform: none; }
+}
+</style>
+</head>
+<body>
+<div id="app" class="tall touch menu-open">
+  <div id="stage">
+    <canvas id="screen" role="img" aria-label="Game screen: a helicopter with a dangling stuntman flies over a horse-drawn hay wagon"></canvas>
+  </div>
+  <div id="deck">
+    <p id="status">LEVEL 1 · WALK · HEAVY GRAVITY</p>
+    <div id="yoke" aria-label="Flight stick. Drag to fly the copter.">
+      <div class="yoke-ring"></div>
+      <div id="yokeKnob"></div>
+      <span class="yoke-label">FLY</span>
+    </div>
+    <button id="drop" class="key" type="button">DROP</button>
+    <div class="keys">
+      <button id="pauseBtn" class="key" type="button">PAUSE</button>
+      <button id="soundBtn" class="key" type="button" aria-pressed="true">SOUND ON</button>
+    </div>
+    <p class="hint">Your mouse is the flight stick. Move it off the center of the screen and the copter flies that way. Click to drop. Arrow keys and the space bar work too. P pauses, M mutes.</p>
+  </div>
+  <section id="sheet" role="dialog" aria-label="Menu" hidden></section>
+  <p id="live" class="sr-only" aria-live="polite"></p>
+</div>
+
+<script>
+(() => {
+"use strict";
+
+const SPR = {"copter":["....................................................................",".......................................######.......................","....................................############....................","...#................................#+++++++++++######..............","...##...........................####++++++++++oooooooo###...........","...#+#.......................###++++++++++++#+ooooo##oooo##.........","...#++#......................#+++oooooooooo+##oooo####ooooo#........","...#+++#..###################++++oooooooooo+##oooo###ooooooo#.......","...#++++##ooooooooooooooooooo++++oooooooooo+##ooooo##oooooooo#......","...#++++################ooooo++++oooooooooo+##oooo#####oooooo#......","...#####................####o+##############################o#......","............................#++++oooooooooooooooooooooooooooo#......","............................#+++++++++++++++++++++++++++++++#.......",".............................#+++++++++++++++++++++++++++++#........",".............................#+++++++++++++++++++++++++++##.........","..............................###########################...........","....................................................................","....................................##...............##.......#.....",".............................#......##...............##......#......","..............................###############################......."],"rotor":[[".........##########################################################.","...................................................................."],[".............##...######...######...######...######...######...#####","...................................................................."],["........................####################################........","....................................,,,,,,,,,,,,...................."]],"tailrotor":[["...#...","...#...","...#...","...#...","...#...","...#...","...#..."],["......#",".....#.","....#..","...#...","..#....",".#.....","#......"],[".......",".......",".......","#######",".......",".......","......."],["#......",".#.....","..#....","...#...","....#..",".....#.","......#"]],"man_hang":[["..##......##..","...#.####.#...","...##oooo##...","...##oo####...","...##oooo##...","...#.####.#...","...########...",".....####.....",".....#oo#.....",".....####.....",".....####.....",".....#..#.....",".....#..#.....",".....#..#.....",".....#..#.....","....##..##...."],["..##......##..","...#.####.#...","...##oooo##...","...##oo####...","...##oooo##...","...#.####.#...","...########...",".....####.....",".....#oo#.....",".....####.....",".....####.....",".....#..#.....","......#..#....","......#..#....","......#..#....","......##.##..."]],"man_fall":[[".#..........#.","..#..####..#..","...##oooo##...","....#oo###....","....#oooo#....",".....####.....","....######....",".....####.....",".....#oo#.....",".....####.....","....#....#....","...#......#...","..#........#..",".##........##.","..............",".............."],["..............","......####....",".....#oooo#...",".....#oo###...",".....#oooo#...","......####....",".############.","#.....####...#","......#oo#....","......####....",".....##..##...","....#......#..","....#.......#.","...##.......##","..............",".............."],["..............",".....####.....","....#oooo#....","....#oo###....","....#oooo#....",".....####.....","...########...","..#.######.#..",".#...#oo#...#.","##...####...##",".....#..#.....","....#...#.....","...#....#.....","..##....#.....","........##....",".............."],["..#........#..","...#.####.#...","....#oooo#....","....#oo###....","....#oooo#....",".....####.....","....######....",".....####.....",".....#oo#.....",".....####.....",".....#..#.....",".....#...#....",".....#....#...","....##.....##.","..............",".............."]],"man_thud":[["..............","..............","..............","..............","..............","..............","..............","..............",".....####.....","....#oooo#....","....#oo###....","#...#oooo#...#",".#..######..#.","..##########..","...#......#...","..##......##.."],["..............","..............","..............","..............","..............","..............","..............","..............","..............","..............","..............","...#..........","..#.#.#...###.",".#...##..#ooo#",".#...#####o###","##...####.###."]],"man_sit":["..............","..............","..............","..............","..............","..............","....####......","...#oooo#.....","...#oo###.....","...#oooo#.....","....####......","...######.....","..#.####.#....",".#..####..#...","#...#######.##","....#########."],"man_walk":[["..............","..............",".....####.....","....###oo#....","....####o#....","....#oooo#....",".....####.....","....######....","...#.####.#...","...#.#oo#.#...",".....####.....",".....#..#.....","....#....#....","....#....#....","...##....##...",".............."],["..............","..............",".....####.....","....###oo#....","....####o#....","....#oooo#....",".....####.....","....######....","....#####.....",".....#oo#.....",".....####.....",".....#..#.....",".....#..#.....",".....#..#.....","....##..##....",".............."]],"man_hay":[[".#........#.","..#.####.#..","...#oooo#...","...#oo###...","...#oooo#...","....####....","...######...","....####...."],["#..........#",".#..####..#.","..##oooo##..","...#oo###...","...#oooo#...","....####....","...######...","....####...."]],"icon_man":["..###..",".#ooo#.",".#o###.","..###..","#######","..###..","..###..","..#.#..",".##.##."],"icon_check":["......#",".....##","#...##.","##.##..",".###...","..#...."],"icon_cross":["##...##",".##.##.","..###..",".##.##.","##...##","......."],"cart":[".........#.....#....#.#.#...#.................","............#################.....#...........",".........###o++++++++++++o+++####.............","......###++++o++++++++++++o++++++##...........",".....#o+++++++++++++++++++++++++o++##.........","...##++o++++++++++o++++++++++++o+++++#........","..#++++++++++++++++o++++++++++++++++++#.......",".#+++++++++++++++++++++++++++++++++o+++#..#...",".#++++++++++++++++++++++++++++++++++++++#.#...","###########################################...","#oooooooooooo#oooooooooooooo#oooooooooooo#####","#oooooooooooo#oooooooooooooo#oooooooooooo##oo#","###########################################oo#","#oooooooooooo#oooooooooooooo#oooooooooooo##oo#","#oooooooooooo#oooooooooooooo#oooooooooooo##oo#","##############################################","..............................................","..............................................","..............................................","..............................................","..............................................",".............................................."],"wheel":[["...#####...","..#oo#oo#..",".#ooo#ooo#.","#oooo#oooo#","#ooo###ooo#","#####o#####","#ooo###ooo#","#oooo#oooo#",".#ooo#ooo#.","..#oo#oo#..","...#####..."],["...#####...","..#ooooo#..",".##ooooo##.","#oo#ooo#oo#","#ooo###ooo#","#ooo#o#ooo#","#ooo###ooo#","#oo#ooo#oo#",".##ooooo##.","..#ooooo#..","...#####..."]],"driver":["...######...","....####....",".##########.","...#oooo#...","...#ooo.#...","...#oooo##..","....####....","...######...","..#.####.#..","..#.####..##","....####....","....######..","....#....#..","....#....#.."],"driver_dazed":["............","............","............","...#oooo#...","...#.o.o#...","...#oooo#...","....####....","...######...","..#.####.#..",".#..####..#.","....####....","....######..","....#....#..","....#....#.."],"hat":["..####..","...##...","########"],"horse":[["........................#.......","........................#.......",".......................#####....",".....................##++o#+#...",".....................###+o+++#..","....................###+++++++#.","...................###+++##+++#.","..................###+++#..###..",".........#########o##+++#.......","....#####+++++++++oo+++#........","...###+++++++++++++o++#.........","...##++++++++++++++oo+#.........","..###+++++++++++++++o+#.........","..#..#++++++++++++++oo..........","..#...#+##++++++++#+#...........","..#..#######+++#####............","..#..##..#..#####.#.............","..#..#...##....##.#.............","....##...##....##.#.............","....##....#....##.#.............","....#.....##...##.#.............","...##.....##...##.#.............","...##......#...##.##............","...##......##..##..............."],["........................#.......","........................#.......",".......................#####....",".....................##++o#+#...",".....................###+o+++#..","....................###+++++++#.","...................###+++##+++#.","..................###+++#..###..",".........#########o##+++#.......","....#####+++++++++oo+++#........","...###+++++++++++++o++#.........","...##++++++++++++++oo+#.........","..###+++++++++++++++o+#.........","..#..#++++++++++++++oo..........","..#...#+##++++++++#+#...........","..#...######+++#####............","..#...#.##..####..##............","..#...#.##....##...#............","......#.##....##...##...........","......#.##....#....##...........","......#.##...##.....#...........","......#.##...##.....##..........",".....##.##...#......##..........","........##..##......##.........."],["........................#.......","........................#.......",".......................#####....",".....................##++o#+#...",".....................###+o+++#..","....................###+++++++#.","...................###+++##+++#.","..................###+++#..###..",".........#########o##+++#.......","....#####+++++++++oo+++#........","...###+++++++++++++o++#.........","...##++++++++++++++oo+#.........","..###+++++++++++++++o+#.........","..#..#++++++++++++++oo..........","..#...#+##++++++++#+#...........","..#...######+++#####............","..#...###...#####.#.............","..#...###......##.#.............",".......##......##.#.............",".......##......##.#.............","......###......##.#.............","......###......##.#.............","......#.##.....##.#.............",".....##.##........##............"],["........................#.......","........................#.......",".......................#####....",".....................##++o#+#...",".....................###+o+++#..","....................###+++++++#.","...................###+++##+++#.","..................###+++#..###..",".........#########o##+++#.......","....#####+++++++++oo+++#........","...###+++++++++++++o++#.........","...##++++++++++++++oo+#.........","..###+++++++++++++++o+#.........","..#..#++++++++++++++oo..........","..#...#+##++++++++#+#...........","..#...######+++#####............","..#...#.##..###.###.............","..#...#.##......###.............","......#.##......##..............","......#.##......##..............","......#.##......###.............","......#.##......###.............","......#.##.....##.#.............",".....##........##.##............"]],"horse_rear":[".............########...........","..............#o#++++#..........",".............#+o++++#...........","............###+++###...........","............###++#..............","............###++#..............","............###++#..............","............###++#..............","............###++#..............","............o##++#..............","...........#ooo++#..............",".........##+++oooo#.............","........#++++++++o#.............",".......#+++++++++#..............","......#++++++++++#..............",".....#++++++++++###.............","....#+++++++++######............","....#++++++++++###.#............","..##+++++++++##.####............","..##++++++++#...#.##............","..##++++#+##....#.##............","..#.######.....##...............","..#...####......................","..##..####......................","...##.####......................","...##.##.#......................","....###..#......................","......#..##.....................",".....##..##.....................","................................"],"cloud":[["................................................................................................","................................................................................................","................................................................................................","..................................########......................................................","...............................###oooooooo###...................................................",".............................##oooooooooooooo##.................................................","............................#oooooooooooooooooo#........########................................","..........................##oooooooooooooooooooo##...###oooooooo###.............................",".........................#oooooooooooooooooooooooo###oooooooooooooo##...........................",".........................#ooooooooooooooooooooooooooooooooooooooooooo#..........................","........................#ooooooooooooooooooooooooooooooooooooooooooooo#.........................",".......................#ooooooooooooooooooooooooooooooooooooooooooooooo#........................",".......................#oooooooooooooooooooooooooooooooooooooooooooooooo#.......................","......................#oooooooooooooooooooooooooooooooooooooooooooooooooo#......................","......................#oooooooooooooooooooooooooooooooooooooooooooooooooo#......................","......................#ooooooooooooooooooooooooooooooooooooooooooooooooooo#.....................",".....................#oooooooooooooooooooooooooooooooooooooooooooooooooooo#.....................","................#####ooooooooooooooooooooooooooooooooooooooooooooooooooooo#.....................","..............##ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo######...............","............##ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo###............","...........#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#...........","..........#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#..........",".........#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#.........",".........#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#........","........#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#.......","........#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#.......",".......#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#.......",".......#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#......",".......#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#......",".......#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#......",".......#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#......",".......#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#......",".......##ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo##......",".......#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#.......","........#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#o#.......","........#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#.......",".........##ooooooooooooooooooooooooo#o#ooooooooooooooooo#o#ooooooooooooooooooooooooo#o##........",".........#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#.........","..........#o#o#ooooooooo#o#ooooooo#o###o#ooooooooooooo#o###o#o#ooooooo#o#o#o#o#o#o#o##..........","...........#oooooooooooooooooooooooo#..#oooooooooooooooo#..#oooooooooooooooooooooooo#...........","............###o#o#o#o#o#o#o#o#o#o##....#o#o#o#o#o#o#o##....#o#o#o#o#o#####o#o#o####............","..............##oooooooo###oooooo##......#oooooooooooo#......##oooooo##....######...............","................########...######.........###o#o#o####.........######...........................",".............................................######............................................."],["......................................................########..........................................................","...................................................###oooooooo###.......................................................",".................................................##oooooooooooooo##.....................................................","...............................................##oooooooooooooooooo##...................................................","..............................................#oooooooooooooooooooooo#..................................................",".............................................#oooooooooooooooooooooooo#.................................................","............................................#oooooooooooooooooooooooooo#................................................","...........................................#oooooooooooooooooooooooooooo#...............................................","...........................................#oooooooooooooooooooooooooooo#...########....................................","..........................................#oooooooooooooooooooooooooooooo###oooooooo###.................................","................................########..#oooooooooooooooooooooooooooooooooooooooooooo##...............................",".............................###oooooooo##ooooooooooooooooooooooooooooooooooooooooooooooo#..............................","...........................##ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#.............................","..........................#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#............................",".........................#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#...........................","........................#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#..........................",".......................#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#..........................","......................#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#.........................","......................#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#.........................",".....................#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#.........................",".....................#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#........................",".....................#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#........................","....................#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#.######.................","....................#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#oooooo###..............","...............#####oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#.............","............###oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#............","...........#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#...........","..........#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#..........",".........#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#.........","........#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#.........",".......#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#.........",".......#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#........",".......#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#........","......#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#........","......#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#........","......#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#........","......#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#o#ooooooooooooooooooooooooooooooooooo##........","......#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#.........","......#ooooooooooooooooooooo#o#ooooooooooooooooooooooooooooooooooooooooo###ooooooooooooooooooooooooooooooooo#o#.........",".......#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#..#oooooooooooooooooooooooooooooooooo#.........",".......##ooooooooooooooooo#o###ooooooooooooooooo#ooooooooooooooooooooo##...##ooooooooooooo#o#ooooooooooooo#o##..........",".......#oooooooooooooooooooo#..#ooooooooooooooooooooooooooooooooooooooo#....#ooooooooooooooooooooooooooooooo#...........","........#o#ooooooooooooo#o##...##o#ooooooooooo#o#o#ooooooooooooooooo#o#.....#o#o#ooooooo#o###o#o#o#o#o#o#o##............",".........#oooooooooooooooo#.....#oooooooooooooo#.#oooooooooooooooooooo#......#oooooooooooo#..#oooooooooooo#.............","..........#o#o#o#o#o#o#o##......#o#o#o#o#o#o#o##..#o#o#ooooooooo#o#o##........#o#o#o#o#o##....###o#o#o####..............","...........#oooooooooooo#........##oooooooooo##....#oooooooooooooooo#..........##oooooo##........######.................","............###o#o#o####...........##o#o#o###.......###o#o#o#o#o#o##.............######.................................","...............######................######...........##oooooooo##......................................................","........................................................########........................................................","........................................................................................................................"],["..........................................................................","..........................................................................","..............................########....................................","............................##oooooooo##..................................","..........................##oooooooooooo##................................",".........................#oooooooooooooooo#...............................","........................#oooooooooooooooooo#..............................",".......................#oooooooooooooooooooo#....######...................",".......................#oooooooooooooooooooo#.###oooooo###................","......................#oooooooooooooooooooooo#oooooooooooo#...............","......................#oooooooooooooooooooooooooooooooooooo#..............",".....................#oooooooooooooooooooooooooooooooooooooo#.............",".....................#ooooooooooooooooooooooooooooooooooooooo#............",".............######..#oooooooooooooooooooooooooooooooooooooooo#...........","..........###oooooo##ooooooooooooooooooooooooooooooooooooooooo#...........",".........#oooooooooooooooooooooooooooooooooooooooooooooooooooo#...........","........#oooooooooooooooooooooooooooooooooooooooooooooooooooooo#..........",".......#oooooooooooooooooooooooooooooooooooooooooooooooooooooooo#.........","......#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooo##.......","......#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#......","......#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#.....",".....#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#....",".....#ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#....",".....#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#...",".....#oooooooooooooooooooo#ooooooooooooooooooooooooooooooooooooooooooo#...",".....#oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo#...",".....##ooooooooooooooooooo#ooooooooooooooooo#o#o#ooooooooooooooooooooo#...","......#oooooooooooooooooo#.#oooooooooooooooooooooooooooooooooooooooooo#...","......#o#ooooooooooooooo##.##ooooooooooooooo###o#o#o#o#ooooooooooooo#o#...","......#oooooooooooooooooo#.#oooooooooooooooo#.###oooooooooooooooooooo#....",".......##o#o#ooooooo#o#o#...#o#ooooooooooo##.....######o#o#ooooooo#o##....","........#oooooooooooooo#....#oooooooooooooo#...........#oooooooooooo#.....",".........##o#o#o#o#o#o#......##o#o#o#o#o#o#.............#o#o#o#o#o##......","..........###oooooo###........#oooooooooo#...............##oooooo##.......",".............######............##o#o#o###..................######.........",".................................######..................................."]]};
+
+/* ------------------------------------------------------------------ constants */
+const INK = [21, 21, 21], PAPER = [243, 242, 236];
+const INK_CSS = "rgb(21,21,21)", PAPER_CSS = "rgb(243,242,236)";
+const H = 342, PANEL_H = 44, PANEL_Y = H - PANEL_H, GROUND = PANEL_Y - 8;
+const HZ = 36, STEP = 1000 / HZ;                 // the original ran one loop per frame; 36 Hz feels right
+const CW = 68, CH = 20, HANG_X = 39, HANG_Y = 19; // copter frame and where the stuntman hangs
+const WAG_W = 82, HAY_TOP = GROUND - 21, HORSE_BACK = GROUND - 15;
+const COPTER_MIN_Y = -2, COPTER_MAX_Y = GROUND - 22 - 10 - CH;
+const PACE = ["", "WALK", "TROT", "GALLOP"];
+const GRAV = ["", "FLOATY", "LIGHT", "NORMAL", "HEAVY"];
+const CHEERS = ["NICE!", "TA-DA!", "YEEHAW!", "SOFT ONE!", "HAY THERE!"];
+const STICK_R = 42;  // css px of thumb travel for full stick
+let W = 512;
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const rand = (a, b) => a + Math.random() * (b - a);
+const randInt = (a, b) => Math.floor(rand(a, b + 1));
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const pad = (n, k) => String(Math.max(0, Math.floor(n))).padStart(k, "0");
+const fmt = n => Math.floor(n).toLocaleString("en-US");
+
+/* ------------------------------------------------------------------ storage */
+const store = { hi: 0, freeBest: 0, sound: true };
+const KEY = "bale-out-v1";
+function load(extra) {
+  try {
+    const s = JSON.parse(localStorage.getItem(KEY) || "{}");
+    if (Number.isFinite(s.hi)) store.hi = s.hi;
+    if (Number.isFinite(s.freeBest)) store.freeBest = s.freeBest;
+    if (typeof s.sound === "boolean") store.sound = s.sound;
+  } catch (e) { /* storage blocked: play without it */ }
+  if (extra && typeof extra === "object") {
+    if (Number.isFinite(extra.hi)) store.hi = Math.max(store.hi, extra.hi);
+    if (Number.isFinite(extra.freeBest)) store.freeBest = Math.max(store.freeBest, extra.freeBest);
+    if (typeof extra.sound === "boolean") store.sound = extra.sound;
+  }
+}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) { /* ignore */ } }
+
+/* ------------------------------------------------------------------ sprites */
+function makeSprite(rows, invert) {
+  const h = rows.length, w = rows[0].length;
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const g = c.getContext("2d"), img = g.createImageData(w, h), d = img.data;
+  const mask = new Uint8Array(w * h);
+  const A = invert ? PAPER : INK, B = invert ? INK : PAPER;
+  for (let y = 0; y < h; y++) {
+    const row = rows[y];
+    for (let x = 0; x < w; x++) {
+      const ch = row[x];
+      let col = null;
+      if (ch === "#") col = A;
+      else if (ch === "o") col = B;
+      else if (ch === "+") col = (x + y) & 1 ? B : A;
+      else if (ch === ":") col = !(x & 1) && !(y & 1) ? A : B;
+      else if (ch === ",") col = (x + y) & 1 ? null : A;
+      if (!col) continue;
+      const i = (y * w + x) * 4;
+      d[i] = col[0]; d[i + 1] = col[1]; d[i + 2] = col[2]; d[i + 3] = 255;
+      mask[y * w + x] = 1;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  return { c, w, h, mask };
+}
+const SP = {};
+for (const k in SPR) {
+  const v = SPR[k];
+  SP[k] = Array.isArray(v[0]) ? v.map(r => makeSprite(r)) : makeSprite(v);
+}
+SP.icon_man_inv = makeSprite(SPR.icon_man, true);
+SP.icon_check_inv = makeSprite(SPR.icon_check, true);
+SP.icon_cross_inv = makeSprite(SPR.icon_cross, true);
+
+const BARN = makeSprite([
+  "......###......",
+  "....##+++##....",
+  "..##+++++++##..",
+  ".#+++++++++++#.",
+  "###############",
+  ".#ooooooooooo#.",
+  ".#oooo###oooo#.",
+  ".#oooo#o#oooo#.",
+  ".#ooo#####ooo#.",
+  ".#ooo##o##ooo#.",
+  ".#ooo#o#o#ooo#.",
+  ".#ooo##o##ooo#.",
+  ".#############.",
+]);
+const SILO = makeSprite([
+  ".###.", "#ooo#", "#####", "#o+o#", "#o+o#", "#####", "#o+o#",
+  "#o+o#", "#####", "#o+o#", "#o+o#", "#o+o#", "#####",
+]);
+const TREE = makeSprite([
+  "...###...", ".##+++##.", "#+++++++#", "#+++++++#", "#+++++++#",
+  ".#+++++#.", "..##+##..", "....#....", "....#....", "...###...",
+]);
+const TUFT = makeSprite(["#.#.#", ".#.#."]);
+
+/* ------------------------------------------------------------------ bitmap font (5x7) */
+const GLYPHS = {
+  A: [14, 17, 17, 31, 17, 17, 17], B: [30, 17, 17, 30, 17, 17, 30], C: [14, 17, 16, 16, 16, 17, 14],
+  D: [28, 18, 17, 17, 17, 18, 28], E: [31, 16, 16, 30, 16, 16, 31], F: [31, 16, 16, 30, 16, 16, 16],
+  G: [14, 17, 16, 23, 17, 17, 15], H: [17, 17, 17, 31, 17, 17, 17], I: [14, 4, 4, 4, 4, 4, 14],
+  J: [7, 2, 2, 2, 2, 18, 12], K: [17, 18, 20, 24, 20, 18, 17], L: [16, 16, 16, 16, 16, 16, 31],
+  M: [17, 27, 21, 21, 17, 17, 17], N: [17, 17, 25, 21, 19, 17, 17], O: [14, 17, 17, 17, 17, 17, 14],
+  P: [30, 17, 17, 30, 16, 16, 16], Q: [14, 17, 17, 17, 21, 18, 13], R: [30, 17, 17, 30, 20, 18, 17],
+  S: [15, 16, 16, 14, 1, 1, 30], T: [31, 4, 4, 4, 4, 4, 4], U: [17, 17, 17, 17, 17, 17, 14],
+  V: [17, 17, 17, 17, 17, 10, 4], W: [17, 17, 17, 21, 21, 21, 10], X: [17, 17, 10, 4, 10, 17, 17],
+  Y: [17, 17, 17, 10, 4, 4, 4], Z: [31, 1, 2, 4, 8, 16, 31],
+  0: [14, 17, 19, 21, 25, 17, 14], 1: [4, 12, 4, 4, 4, 4, 14], 2: [14, 17, 1, 2, 4, 8, 31],
+  3: [31, 2, 4, 2, 1, 17, 14], 4: [2, 6, 10, 18, 31, 2, 2], 5: [31, 16, 30, 1, 1, 17, 14],
+  6: [6, 8, 16, 30, 17, 17, 14], 7: [31, 1, 2, 4, 8, 8, 8], 8: [14, 17, 17, 14, 17, 17, 14],
+  9: [14, 17, 17, 15, 1, 2, 12],
+  " ": [0, 0, 0, 0, 0, 0, 0], "!": [4, 4, 4, 4, 4, 0, 4], "?": [14, 17, 1, 2, 4, 0, 4],
+  ".": [0, 0, 0, 0, 0, 12, 12], ",": [0, 0, 0, 0, 12, 4, 8], ":": [0, 12, 12, 0, 12, 12, 0],
+  "'": [4, 4, 8, 0, 0, 0, 0], "-": [0, 0, 0, 31, 0, 0, 0], "+": [0, 4, 4, 31, 4, 4, 0],
+  "/": [1, 1, 2, 4, 8, 16, 16], "(": [2, 4, 8, 8, 8, 4, 2], ")": [8, 4, 2, 2, 2, 4, 8],
+  "·": [0, 0, 0, 4, 0, 0, 0], "=": [0, 0, 31, 0, 31, 0, 0],
+};
+function makeFont(css) {
+  const keys = Object.keys(GLYPHS);
+  const c = document.createElement("canvas"); c.width = keys.length * 6; c.height = 7;
+  const g = c.getContext("2d"); g.fillStyle = css;
+  const idx = {};
+  keys.forEach((k, i) => {
+    idx[k] = i;
+    GLYPHS[k].forEach((row, y) => { for (let x = 0; x < 5; x++) if (row & (16 >> x)) g.fillRect(i * 6 + x, y, 1, 1); });
+  });
+  return { c, idx };
+}
+const FONT_INK = makeFont(INK_CSS), FONT_PAPER = makeFont(PAPER_CSS);
+const OUTLINE = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]];
+function glyphRun(g, f, str, x, y, s, adv) {
+  for (let i = 0; i < str.length; i++) {
+    const k = f.idx[str[i]];
+    if (k !== undefined) g.drawImage(f.c, k * 6, 0, 5, 7, x + i * adv, y, 5 * s, 7 * s);
+  }
+}
+function text(g, str, x, y, o = {}) {
+  const s = o.s || 1, ink = o.col !== "paper";
+  str = String(str).toUpperCase();
+  const adv = 6 * s, width = str.length * adv - s;
+  if (o.align === "center") x -= width / 2; else if (o.align === "right") x -= width;
+  if (o.keep) x = clamp(x, 2, W - width - 2);
+  x = Math.round(x); y = Math.round(y);
+  if (o.outline) for (const [dx, dy] of OUTLINE) glyphRun(g, ink ? FONT_PAPER : FONT_INK, str, x + dx, y + dy, s, adv);
+  glyphRun(g, ink ? FONT_INK : FONT_PAPER, str, x, y, s, adv);
+  return width;
+}
+
+/* ------------------------------------------------------------------ canvases */
+const app = document.getElementById("app");
+const stage = document.getElementById("stage");
+const screen = document.getElementById("screen");
+const sctx = screen.getContext("2d");
+const deck = document.getElementById("deck");
+const sheet = document.getElementById("sheet");
+const statusEl = document.getElementById("status");
+const yoke = document.getElementById("yoke");
+const yokeKnob = document.getElementById("yokeKnob");
+const dropBtn = document.getElementById("drop");
+const pauseBtn = document.getElementById("pauseBtn");
+const soundBtn = document.getElementById("soundBtn");
+const live = document.getElementById("live");
+const buf = document.createElement("canvas");
+let bctx = buf.getContext("2d");
+let bg = document.createElement("canvas");
+let scale = 1;
+
+function hillTop(x) { return Math.round(GROUND - 34 - 7 * Math.sin(x / 53 + 0.6) - 4 * Math.sin(x / 21 + 1.7)); }
+function hash(x, y) { let h = (x * 374761393 + y * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177; return (h ^ (h >>> 16)) >>> 0; }
+
+function buildBackground() {
+  bg.width = W; bg.height = H;
+  const g = bg.getContext("2d");
+  g.fillStyle = PAPER_CSS; g.fillRect(0, 0, W, H);
+  g.fillStyle = INK_CSS;
+  const base = GROUND - 22;
+  for (let x = 0; x < W; x++) {
+    const top = hillTop(x);
+    if (top >= base) continue;
+    g.fillRect(x, top, 1, 1);
+    for (let y = top + 3; y < base; y++) {
+      if ((x % 6 === 0 && y % 6 === 0) || ((x + 3) % 6 === 0 && (y + 3) % 6 === 0)) g.fillRect(x, y, 1, 1);
+    }
+  }
+  const put = (spr, cx) => { const x = Math.round(cx - spr.w / 2); g.drawImage(spr.c, x, hillTop(Math.round(cx)) - spr.h + 4); };
+  put(TREE, W * 0.13);
+  put(TREE, W * 0.2);
+  put(SILO, W * 0.715);
+  put(BARN, W * 0.76);
+  put(TREE, W * 0.9);
+  for (let i = 0; i < W / 26; i++) {
+    const x = (hash(i, 7) % W);
+    g.drawImage(TUFT.c, x, (hash(i, 3) & 1) ? GROUND - 2 : base - 1);
+  }
+  g.fillRect(0, GROUND, W, 1);
+  for (let x = 0; x < W; x++) for (let y = GROUND + 2; y < PANEL_Y; y++) if (hash(x, y) % 23 === 0) g.fillRect(x, y, 1, 1);
+  g.fillRect(0, PANEL_Y, W, PANEL_H);
+}
+
+/* ------------------------------------------------------------------ sound */
+const Sound = {
+  ctx: null, master: null, noise: null, rotor: null, whistleNode: null,
+  init() {
+    if (this.ctx) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    try { this.ctx = new AC(); } catch (e) { this.ctx = null; return; }
+    const c = this.ctx;
+    this.master = c.createGain();
+    this.master.gain.value = store.sound ? 0.5 : 0;
+    this.master.connect(c.destination);
+    const len = c.sampleRate;
+    this.noise = c.createBuffer(1, len, c.sampleRate);
+    const d = this.noise.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  },
+  unlock() {
+    this.init();
+    if (this.ctx && this.ctx.state !== "running") this.ctx.resume().catch(() => {});
+  },
+  ready() { return !!(this.ctx && store.sound); },
+  setOn(v) {
+    if (!this.ctx) return;
+    this.master.gain.setTargetAtTime(v ? 0.5 : 0, this.ctx.currentTime, 0.02);
+  },
+  tone(f, t0, dur, o = {}) {
+    const c = this.ctx, osc = c.createOscillator(), g = c.createGain();
+    const vol = o.vol || 0.1;
+    osc.type = o.type || "square";
+    osc.frequency.setValueAtTime(f, t0);
+    if (o.f2) osc.frequency.exponentialRampToValueAtTime(o.f2, t0 + dur);
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(vol, t0 + 0.006);
+    g.gain.setValueAtTime(vol, t0 + Math.max(0.01, dur - 0.04));
+    g.gain.linearRampToValueAtTime(0, t0 + dur);
+    osc.connect(g); g.connect(this.master);
+    osc.start(t0); osc.stop(t0 + dur + 0.03);
+    return { osc, g };
+  },
+  hiss(t0, dur, vol, freq, type = "lowpass", q = 0.7) {
+    const c = this.ctx, src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+    src.buffer = this.noise; f.type = type; f.frequency.value = freq; f.Q.value = q;
+    g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    src.connect(f); f.connect(g); g.connect(this.master);
+    src.start(t0, Math.random() * 0.5); src.stop(t0 + dur + 0.02);
+  },
+  startRotor() {
+    if (!this.ctx || this.rotor) return;
+    const c = this.ctx;
+    const src = c.createBufferSource(); src.buffer = this.noise; src.loop = true;
+    const lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 520;
+    const am = c.createGain(); am.gain.value = 0;
+    const lfo = c.createOscillator(); lfo.type = "square"; lfo.frequency.value = 11;
+    const depth = c.createGain(); depth.gain.value = 0.04;
+    let bias = null;
+    if (c.createConstantSource) { bias = c.createConstantSource(); bias.offset.value = 0.04; bias.connect(am.gain); bias.start(); }
+    lfo.connect(depth); depth.connect(am.gain);
+    src.connect(lp); lp.connect(am); am.connect(this.master);
+    src.start(); lfo.start();
+    this.rotor = { src, lfo, bias, am };
+  },
+  stopRotor() {
+    const r = this.rotor;
+    if (!r) return;
+    try { r.src.stop(); r.lfo.stop(); if (r.bias) r.bias.stop(); } catch (e) { /* already stopped */ }
+    r.am.disconnect();
+    this.rotor = null;
+  },
+  swish() { if (this.ready()) this.hiss(this.ctx.currentTime, 0.12, 0.12, 1400, "bandpass", 1.4); },
+  whistle(sec) {
+    if (!this.ready()) return;
+    this.stopWhistle();
+    const t0 = this.ctx.currentTime, d = clamp(sec, 0.25, 6);
+    this.whistleNode = this.tone(1500, t0, d, { type: "sine", vol: 0.035, f2: 520 });
+  },
+  stopWhistle() {
+    const w = this.whistleNode;
+    this.whistleNode = null;
+    if (!w || !this.ctx) return;
+    try { const t = this.ctx.currentTime; w.g.gain.cancelScheduledValues(t); w.g.gain.setTargetAtTime(0, t, 0.015); w.osc.stop(t + 0.1); } catch (e) { /* ignore */ }
+  },
+  fanfare(level) {
+    if (!this.ready()) return;
+    const t0 = this.ctx.currentTime + 0.03;
+    const base = 196 * Math.pow(2, Math.min(level - 1, 9) * 2 / 12);
+    const starts = [0, 0.167, 0.25, 0.333];
+    [1, 1.26, 1.5, 2].forEach((r, i) => this.tone(base * r, t0 + starts[i], 0.7 - starts[i], { vol: 0.045 }));
+  },
+  hay() { if (this.ready()) this.hiss(this.ctx.currentTime, 0.16, 0.22, 2600, "bandpass", 0.9); },
+  thud() {
+    if (!this.ready()) return;
+    const t0 = this.ctx.currentTime;
+    this.tone(150, t0, 0.22, { type: "sine", vol: 0.32, f2: 42 });
+    this.hiss(t0, 0.16, 0.25, 320);
+  },
+  bonk() {
+    if (!this.ready()) return;
+    const t0 = this.ctx.currentTime;
+    this.tone(720, t0, 0.11, { vol: 0.07, f2: 240 });
+    this.tone(1440, t0, 0.05, { type: "triangle", vol: 0.06 });
+  },
+  neigh() {
+    if (!this.ready()) return;
+    const c = this.ctx, t0 = c.currentTime + 0.01;
+    const o = c.createOscillator(); o.type = "sawtooth";
+    o.frequency.setValueAtTime(640, t0);
+    o.frequency.linearRampToValueAtTime(980, t0 + 0.12);
+    o.frequency.exponentialRampToValueAtTime(400, t0 + 0.8);
+    const lfo = c.createOscillator(); lfo.frequency.value = 17;
+    const lg = c.createGain(); lg.gain.value = 70; lfo.connect(lg); lg.connect(o.frequency);
+    const bp = c.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1400; bp.Q.value = 1.2;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(0.16, t0 + 0.04);
+    g.gain.setValueAtTime(0.16, t0 + 0.55); g.gain.linearRampToValueAtTime(0, t0 + 0.85);
+    o.connect(bp); bp.connect(g); g.connect(this.master);
+    o.start(t0); lfo.start(t0); o.stop(t0 + 0.9); lfo.stop(t0 + 0.9);
+  },
+  levelUp() {
+    if (!this.ready()) return;
+    const t0 = this.ctx.currentTime + 0.75;
+    [1, 1.26, 1.5, 2, 2.52, 3].forEach((r, i) => this.tone(392 * r, t0 + i * 0.07, 0.09, { vol: 0.05 }));
+  },
+  sad() {
+    if (!this.ready()) return;
+    const t0 = this.ctx.currentTime + 0.05;
+    [392, 370, 349].forEach((f, i) => this.tone(f, t0 + i * 0.32, 0.3, { type: "triangle", vol: 0.1 }));
+    const last = this.tone(330, t0 + 0.96, 0.85, { type: "triangle", vol: 0.1 });
+    const lfo = this.ctx.createOscillator(), lg = this.ctx.createGain();
+    lfo.frequency.value = 6; lg.gain.value = 7; lfo.connect(lg); lg.connect(last.osc.frequency);
+    lfo.start(t0 + 0.96); lfo.stop(t0 + 1.85);
+  },
+};
+
+/* ------------------------------------------------------------------ game state */
+const G = {
+  mode: "attract", phase: "title", tick: 0,
+  copter: { x: 0, y: 0, px: 0, py: 0, dh: 0, dv: 0 },
+  wagon: { x: 0, px: 0, moving: true, stopT: 0 },
+  cloud: { i: 0, x: 0, px: 0, y: 30, sub: 0 },
+  pace: 1, grav: 4, level: 1,
+  man: null, nextManT: 0,
+  riders: [], groundies: [], parts: [], pops: [],
+  slots: [], goodJumps: 0,
+  score: 0, hits: 0, streak: 0,
+  driverDaze: 0, horseRear: 0,
+  overPending: false, overT: 0, overReason: "",
+  banner: null, stick: [0, 0],
+  ai: { alt: 90, restX: 200, restY: 80 },
+};
+
+function newCloud() {
+  const cl = G.cloud;
+  cl.i = (cl.i + 1) % SP.cloud.length;
+  cl.x = cl.px = W;
+  cl.y = randInt(6, 116);
+}
+
+function resetWorld() {
+  const c = G.copter;
+  c.x = c.px = Math.round(W * 0.3); c.y = c.py = 70; c.dh = c.dv = 0;
+  const w = G.wagon;
+  w.x = w.px = Math.round(W * 0.42); w.moving = true; w.stopT = 0;
+  const cl = G.cloud;
+  cl.i = randInt(0, SP.cloud.length - 1); cl.x = cl.px = Math.round(W * 0.58); cl.y = randInt(8, 100); cl.sub = 0;
+  G.man = null; G.nextManT = 0;
+  G.riders = []; G.groundies = []; G.parts = []; G.pops = [];
+  G.driverDaze = 0; G.horseRear = 0;
+  G.overPending = false; G.banner = null;
+  Sound.stopWhistle();
+}
+
+/* ------------------------------------------------------------------ input */
+const input = { touch: null, pad: null, taps: new Map(), keys: new Set(), mouse: { active: false, sx: 0, sy: 0 } };
+let lastInput = "pointer";
+
+function axis(d) {
+  const dead = 6;
+  if (Math.abs(d) < dead) return 0;
+  return clamp((d - Math.sign(d) * dead) / (STICK_R - dead), -1, 1);
+}
+function readStick() {
+  const t = input.touch || input.pad;
+  if (t) return [t.sx, t.sy];
+  let kx = 0, ky = 0;
+  if (input.keys.has("left")) kx -= 1;
+  if (input.keys.has("right")) kx += 1;
+  if (input.keys.has("up")) ky -= 1;
+  if (input.keys.has("down")) ky += 1;
+  if (kx || ky) return [kx, ky];
+  if (input.mouse.active) return [input.mouse.sx, input.mouse.sy];
+  return [0, 0];
+}
+
+/* ------------------------------------------------------------------ game flow */
+function release() {
+  const m = G.man, c = G.copter;
+  if (!m || m.state !== "hang") return false;
+  m.state = "fall"; m.f = 0; m.decided = false; m.target = null;
+  m.x = m.px = c.x + HANG_X; m.y = m.py = c.y + HANG_Y;
+  m.h0 = GROUND - (c.y + CH);
+  if (G.mode !== "attract") {
+    Sound.swish();
+    Sound.whistle((HAY_TOP - (m.y + 15)) / G.grav / HZ);
+  }
+  return true;
+}
+function drop() { if (G.phase === "play" && !G.overPending) release(); }
+
+function nextMan() {
+  if (G.mode === "show" && G.slots.length >= 5) {
+    if (G.goodJumps >= 5) levelUp();
+    else { triggerOver("level", 18); return; }
+  }
+  G.man = { state: "hang", x: 0, y: 0, px: 0, py: 0, f: 0 };
+  if (G.mode === "attract") G.ai.alt = randInt(24, 190);
+}
+
+function levelUp() {
+  G.level++;
+  if (G.pace === 3 && G.grav > 1) G.grav--;
+  if (G.pace < 3) G.pace++;
+  G.slots = []; G.goodJumps = 0;
+  G.banner = { text: "LEVEL " + G.level, sub: PACE[G.pace] + " · " + GRAV[G.grav] + " GRAVITY", t: 0, life: 84 };
+  Sound.levelUp();
+  updateStatus();
+  announce("Level " + G.level + ". The wagon is at a " + PACE[G.pace].toLowerCase() + ", gravity is " + GRAV[G.grav].toLowerCase() + ".");
+}
+
+function triggerOver(reason, delay) {
+  if (G.overPending) return;
+  G.overPending = true; G.overT = delay || 64; G.overReason = reason; G.nextManT = 0;
+}
+
+function pop(str, x, y) { if (G.mode !== "attract") G.pops.push({ text: str, x, y, t: 0, life: 42 }); }
+function announce(msg) { live.textContent = ""; setTimeout(() => { live.textContent = msg; }, 30); }
+
+function decide(m) {
+  m.decided = true;
+  const rel = m.x + 7 - G.wagon.x;
+  if (rel >= 1 && rel < 42) return landInHay(m, rel);
+  if (rel >= 42 && rel < 52) return hitDriver(m);
+  if (rel >= 52 && rel < WAG_W) { m.target = "horse"; return; }
+  Sound.stopWhistle();
+  if (G.mode === "show") G.slots.push(false);
+  else if (G.mode === "free") G.streak = 0;
+}
+
+function landInHay(m, rel) {
+  G.man = null;
+  Sound.stopWhistle();
+  G.riders.push({ off: rel, t: 0 });
+  const lx = G.wagon.x + rel;
+  for (let i = 0; i < 16; i++) {
+    G.parts.push({ k: "straw", x: lx + rand(-5, 5), y: HAY_TOP + rand(-1, 3), vx: rand(-1.5, 1.5), vy: rand(-3.3, -1.1), t: 0, life: randInt(16, 28) });
+  }
+  if (G.mode === "show") {
+    const pts = G.level * m.h0 * 10;
+    G.score += pts; G.goodJumps++; G.slots.push(true);
+    pop("+" + fmt(pts), lx, HAY_TOP - 24);
+    announce("In the hay. " + fmt(pts) + " points.");
+    Sound.hay(); Sound.fanfare(G.level);
+  } else if (G.mode === "free") {
+    G.hits++; G.streak++;
+    if (G.streak > store.freeBest) { store.freeBest = G.streak; save(); }
+    const center = Math.abs(rel - 21) <= 3;
+    pop(G.streak >= 3 ? G.streak + " IN A ROW!" : center ? "BULLSEYE!" : pick(CHEERS), lx, HAY_TOP - 24);
+    announce("In the hay. " + G.streak + " in a row.");
+    Sound.hay(); Sound.fanfare(1);
+  }
+  G.nextManT = 30;
+}
+
+function hitDriver(m) {
+  Sound.stopWhistle();
+  m.state = "tumble"; m.vx = -1.4; m.vy = -3.4; m.decided = true;
+  G.driverDaze = 96;
+  const hx = G.wagon.x + 44, hy = GROUND - 22;
+  G.parts.push({ k: "hat", x: hx, y: hy, vx: -0.9, vy: -3.6, t: 0, life: 100 });
+  if (G.mode !== "attract") { Sound.bonk(); pop("BONK!", hx, hy - 16); }
+  if (G.mode === "show") {
+    G.slots.push(false); G.wagon.moving = false; triggerOver("driver");
+    announce("Your stuntman landed on the driver. The show is over.");
+  } else if (G.mode === "free") G.streak = 0;
+}
+
+function hitHorse(m) {
+  Sound.stopWhistle();
+  m.state = "tumble"; m.vx = 1.6; m.vy = -3.6; m.target = null;
+  G.horseRear = 52; G.wagon.stopT = Math.max(G.wagon.stopT, 52);
+  if (G.mode !== "attract") { Sound.neigh(); pop("NEIGH!", G.wagon.x + 68, GROUND - 44); }
+  if (G.mode === "show") {
+    G.slots.push(false); G.wagon.moving = false; triggerOver("horse");
+    announce("Your stuntman landed on the horse. The show is over.");
+  } else if (G.mode === "free") G.streak = 0;
+}
+
+function landOnGround(m) {
+  G.man = null;
+  const plain = m.state === "fall";
+  G.groundies.push({ x: Math.round(m.x), px: Math.round(m.x), t: 0 });
+  if (G.groundies.length > 6) G.groundies.shift();
+  for (let i = 0; i < 7; i++) {
+    G.parts.push({ k: "dust", x: m.x + 7 + rand(-7, 7), y: GROUND - rand(1, 5), vx: rand(-0.7, 0.7), vy: rand(-0.45, -0.1), t: 0, life: randInt(10, 18) });
+  }
+  if (G.mode !== "attract") {
+    Sound.thud();
+    if (plain) { pop("OOF!", m.x + 7, GROUND - 30); announce("Missed the wagon."); }
+  }
+  if (!G.overPending) G.nextManT = 22;
+}
+
+function inCloud(x, y) {
+  const cl = G.cloud, s = SP.cloud[cl.i];
+  const lx = Math.round(x - cl.x), ly = Math.round(y - cl.y);
+  return lx >= 0 && ly >= 0 && lx < s.w && ly < s.h && s.mask[ly * s.w + lx] === 1;
+}
+
+function stepMan() {
+  const m = G.man;
+  if (!m) return;
+  m.f++;
+  if (m.state === "hang") return;
+  if (m.state === "fall") {
+    if (!m.decided) {
+      if (m.y + 15 >= HAY_TOP) { decide(m); return; }
+      if (inCloud(m.x + 7, m.y + 7)) { m.x += randInt(-3, 3); m.y += 1; }
+      else m.y += G.grav;
+    } else {
+      m.y += G.grav;
+      if (m.target === "horse" && m.y + 15 >= HORSE_BACK) { hitHorse(m); return; }
+      if (m.y + 15 >= GROUND) { m.y = GROUND - 15; landOnGround(m); }
+    }
+  } else if (m.state === "tumble") {
+    m.vy += 0.32; m.x += m.vx; m.y += m.vy;
+    if (m.y + 15 >= GROUND) { m.y = GROUND - 15; landOnGround(m); }
+  }
+}
+
+function aiStick() {
+  const c = G.copter, w = G.wagon, ai = G.ai, m = G.man;
+  let tx, ty;
+  if (m && m.state === "hang") {
+    const feet = c.y + HANG_Y + 15;
+    const fall = Math.max(0, Math.ceil((HAY_TOP - feet) / G.grav));
+    const land = w.x + 21 + G.pace * fall;
+    tx = land - HANG_X - 7; ty = ai.alt;
+    if (land > W - 24 || land < 24) tx = W * 0.2;
+    else if (Math.abs(c.x + HANG_X + 7 - land) <= 2 && Math.abs(c.dh) <= 1 && Math.abs(c.y - ai.alt) < 14) release();
+  } else {
+    if (G.tick % 150 === 0) { ai.restX = rand(W * 0.1, W * 0.6); ai.restY = rand(20, 140); }
+    tx = ai.restX; ty = ai.restY;
+  }
+  return [clamp((tx - c.x) / 28, -1, 1), clamp((ty - c.y) / 28, -1, 1)];
+}
+
+function tick() {
+  G.tick++;
+  const c = G.copter, w = G.wagon, cl = G.cloud;
+  c.px = c.x; c.py = c.y; w.px = w.x; cl.px = cl.x;
+  if (G.man) { G.man.px = G.man.x; G.man.py = G.man.y; }
+  for (const gm of G.groundies) gm.px = gm.x;
+
+  let stick = [0, 0];
+  if (G.phase === "play" && !G.overPending) stick = readStick();
+  else if (G.mode === "attract") stick = aiStick();
+  G.stick = stick;
+  // Same control law as the 1986 original: the stick asks for a speed (-4..4 across, -3..4 up/down)
+  // and the copter's actual speed moves one step toward it each loop.
+  const reqH = Math.round(stick[0] * 4), reqV = stick[1] < 0 ? Math.round(stick[1] * 3) : Math.round(stick[1] * 4);
+  c.dh += Math.sign(reqH - c.dh); c.dv += Math.sign(reqV - c.dv);
+  c.x += c.dh; c.y += c.dv;
+  if (c.x > W - 2) c.x = c.px = -CW;
+  else if (c.x < -CW - 2) c.x = c.px = W - 2;
+  if (c.y < COPTER_MIN_Y) { c.y = COPTER_MIN_Y; if (c.dv < 0) c.dv = 0; }
+  else if (c.y > COPTER_MAX_Y) { c.y = COPTER_MAX_Y; if (c.dv > 0) c.dv = 0; }
+
+  if (w.stopT > 0) w.stopT--;
+  else if (w.moving) {
+    w.x += G.pace;
+    if (w.x > W) { w.x -= W + WAG_W; w.px = w.x; G.riders.length = 0; }
+  }
+
+  if (++cl.sub >= 3) { cl.sub = 0; cl.x--; }
+  if (cl.x + SP.cloud[cl.i].w < 0) newCloud();
+
+  stepMan();
+
+  for (const r of G.riders) r.t++;
+  for (let i = G.groundies.length - 1; i >= 0; i--) {
+    const gm = G.groundies[i];
+    gm.t++;
+    if (gm.t > 84) { gm.x -= 0.5; if (gm.x < -16) G.groundies.splice(i, 1); }
+  }
+  for (let i = G.parts.length - 1; i >= 0; i--) {
+    const p = G.parts[i];
+    p.t++; p.x += p.vx; p.y += p.vy;
+    if (p.k === "straw") p.vy += 0.22;
+    else if (p.k === "hat") { p.vy += 0.25; if (p.y >= GROUND - 3) { p.y = GROUND - 3; p.vx = 0; p.vy = 0; } }
+    if (p.t > p.life) G.parts.splice(i, 1);
+  }
+  for (let i = G.pops.length - 1; i >= 0; i--) if (++G.pops[i].t > G.pops[i].life) G.pops.splice(i, 1);
+  if (G.driverDaze > 0) G.driverDaze--;
+  if (G.horseRear > 0) G.horseRear--;
+  if (G.banner && ++G.banner.t > G.banner.life) G.banner = null;
+  if (G.nextManT > 0 && --G.nextManT === 0) nextMan();
+  if (G.overPending && --G.overT <= 0) showGameOver();
+}
+
+/* ------------------------------------------------------------------ drawing */
+function stars(g, x, y, t) {
+  g.fillStyle = INK_CSS;
+  for (let k = 0; k < 3; k++) {
+    const a = t * 0.22 + k * 2.094;
+    const sx = Math.round(x + Math.cos(a) * 6), sy = Math.round(y + Math.sin(a) * 2);
+    g.fillRect(sx, sy - 1, 1, 3); g.fillRect(sx - 1, sy, 3, 1);
+  }
+}
+function line(g, x0, y0, x1, y1) {
+  const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, sag = Math.sin(t * Math.PI) * 1.5;
+    g.fillRect(Math.round(x0 + (x1 - x0) * t), Math.round(y0 + (y1 - y0) * t + sag), 1, 1);
+  }
+}
+
+function drawWagon(g, wx) {
+  const w = G.wagon, moving = w.moving && w.stopT === 0;
+  const lf = moving ? ((wx / 3) | 0) & 3 : 0, wf = ((wx / 4) | 0) & 1;
+  g.drawImage(SP.cart.c, wx, GROUND - 21);
+  g.drawImage(SP.wheel[wf].c, wx + 3, GROUND - 10);
+  g.drawImage(SP.wheel[wf].c, wx + 27, GROUND - 10);
+  g.fillStyle = INK_CSS;
+  g.fillRect(wx + 46, GROUND - 12, 22, 1);
+  if (G.horseRear > 0) g.drawImage(SP.horse_rear.c, wx + 50, GROUND - 29);
+  else g.drawImage(SP.horse[lf].c, wx + 50, GROUND - 23);
+  const dazed = G.driverDaze > 0 || (G.overReason === "driver" && (G.overPending || G.phase === "over"));
+  g.drawImage((dazed ? SP.driver_dazed : SP.driver).c, wx + 38, GROUND - 21);
+  if (!dazed && G.horseRear <= 0) line(g, wx + 49, GROUND - 12, wx + 78, GROUND - 17);
+  if (dazed) stars(g, wx + 44, GROUND - 23, G.tick);
+}
+
+function drawRider(g, r, wx) {
+  const sink = r.t < 6 ? 7 - r.t : 0;
+  g.save();
+  g.beginPath(); g.rect(0, 0, W, HAY_TOP + 3); g.clip();
+  g.drawImage(SP.man_hay[(r.t >> 3) & 1].c, wx + Math.round(r.off) - 6, HAY_TOP - 5 + sink);
+  g.restore();
+}
+
+function drawGroundie(g, gm, x) {
+  const t = gm.t;
+  let spr;
+  if (t < 6) spr = SP.man_thud[0];
+  else if (t < 46) { spr = SP.man_thud[1]; stars(g, x + 11, GROUND - 8, t); }
+  else if (t < 85) { spr = SP.man_sit; stars(g, x + 5, GROUND - 12, t); }
+  else spr = SP.man_walk[(t >> 3) & 1];
+  g.drawImage(spr.c, x, GROUND - 15);
+}
+
+function drawParticles(g) {
+  g.fillStyle = INK_CSS;
+  for (const p of G.parts) {
+    const x = Math.round(p.x), y = Math.round(p.y);
+    if (p.k === "straw") g.fillRect(x, y, p.vx > 0 ? 2 : 1, p.vx > 0 ? 1 : 2);
+    else if (p.k === "dust") {
+      if (p.t & 1) continue;
+      const r = 1 + (p.t >> 2);
+      for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+        if (dx * dx + dy * dy <= r * r && ((x + dx + y + dy) & 1) === 0) g.fillRect(x + dx, y + dy, 1, 1);
+      }
+    } else if (p.k === "hat") g.drawImage(SP.hat.c, x - 4, y);
+  }
+}
+
+function drawYokeBox(g, x, y) {
+  const s = 34, mid = 17;
+  g.fillStyle = PAPER_CSS; g.fillRect(x, y, s, s);
+  g.fillStyle = INK_CSS;
+  for (let i = 3; i < s - 3; i += 2) { g.fillRect(x + mid, y + i, 1, 1); g.fillRect(x + i, y + mid, 1, 1); }
+  const kx = Math.round(x + mid + G.stick[0] * 12), ky = Math.round(y + mid + G.stick[1] * 12);
+  g.fillRect(kx - 2, ky - 2, 5, 5);
+  g.fillStyle = PAPER_CSS; g.fillRect(kx, ky, 1, 1);
+}
+
+function drawHUD(g, cy) {
+  const y1 = PANEL_Y + 7, y2 = PANEL_Y + 25;
+  let x = 7;
+  if (W >= 480) { drawYokeBox(g, x, PANEL_Y + 5); x += 44; }
+  if (G.mode === "show") {
+    for (let i = 0; i < 5; i++) {
+      const sx = x + i * 14;
+      const current = i === G.slots.length && G.phase === "play" && !G.overPending;
+      if (current) {
+        g.fillStyle = PAPER_CSS; g.fillRect(sx - 2, y1 - 2, 11, 13);
+        g.drawImage(SP.icon_man.c, sx, y1);
+      } else g.drawImage(SP.icon_man_inv.c, sx, y1);
+      const r = G.slots[i];
+      if (r === true) g.drawImage(SP.icon_check_inv.c, sx, y2 + 3);
+      else if (r === false) g.drawImage(SP.icon_cross_inv.c, sx, y2 + 3);
+    }
+    x += 76;
+    text(g, "SCORE " + pad(G.score, 6), x, y1, { s: 2, col: "paper" });
+    text(g, "HIGH  " + pad(Math.max(store.hi, G.score), 6), x, y2, { s: 2, col: "paper" });
+  } else if (G.mode === "free") {
+    text(g, "HITS " + pad(G.hits, 3), x, y1, { s: 2, col: "paper" });
+    text(g, "STREAK " + pad(G.streak, 2), x, y2, { s: 2, col: "paper" });
+    text(g, "BEST " + pad(store.freeBest, 2), x + 124, y1, { s: 2, col: "paper" });
+  } else {
+    text(g, "DEMO", x, y1, { s: 2, col: "paper" });
+    text(g, "HIGH " + pad(store.hi, 6), x, y2, { s: 2, col: "paper" });
+  }
+  const rx = W - 7;
+  text(g, G.mode === "show" ? "LV " + pad(G.level, 2) : G.mode === "free" ? "FREE" : "", rx, y1, { s: 2, col: "paper", align: "right" });
+  text(g, "HT " + pad(GROUND - (cy + CH), 3), rx, y2, { s: 2, col: "paper", align: "right" });
+  text(g, PACE[G.pace], rx - 84, y1 + 3, { col: "paper", align: "right" });
+  text(g, GRAV[G.grav], rx - 84, y2 + 4, { col: "paper", align: "right" });
+}
+
+function drawStickGuide(g) {
+  if (G.phase !== "play") return;
+  const t = input.touch;
+  if (t && t.onStage) {
+    const r = screen.getBoundingClientRect();
+    const ox = (t.ox - r.left) / scale, oy = (t.oy - r.top) / scale, R = STICK_R / scale;
+    g.fillStyle = INK_CSS;
+    for (let k = 0; k < 28; k += 2) {
+      const a = (k / 28) * Math.PI * 2;
+      g.fillRect(Math.round(ox + Math.cos(a) * R), Math.round(oy + Math.sin(a) * R), 2, 2);
+    }
+    const kx = Math.round(ox + t.sx * R), ky = Math.round(oy + t.sy * R);
+    g.fillRect(kx - 3, ky - 3, 7, 7);
+    g.fillStyle = PAPER_CSS; g.fillRect(kx - 1, ky - 1, 3, 3);
+  } else if (app.classList.contains("mouse") && input.mouse.active && !input.keys.size) {
+    g.fillStyle = INK_CSS;
+    const cx = Math.round(W / 2), cy = 150;
+    for (let i = -6; i <= 6; i += 2) { g.fillRect(cx + i, cy, 1, 1); g.fillRect(cx, cy + i, 1, 1); }
+  }
+}
+
+function render(alpha) {
+  const g = bctx;
+  g.drawImage(bg, 0, 0);
+  const L = (a, b) => (Math.abs(b - a) > 60 ? b : a + (b - a) * alpha);
+  const c = G.copter, w = G.wagon, cl = G.cloud;
+  const cx = Math.round(L(c.px, c.x)), cy = Math.round(L(c.py, c.y));
+  const wx = Math.round(L(w.px, w.x));
+  for (const gm of G.groundies) drawGroundie(g, gm, Math.round(L(gm.px, gm.x)));
+  drawWagon(g, wx);
+  for (const r of G.riders) drawRider(g, r, wx);
+  const m = G.man;
+  if (m && m.state !== "hang") {
+    g.drawImage(SP.man_fall[(m.f >> 1) & 3].c, Math.round(L(m.px, m.x)), Math.round(L(m.py, m.y)));
+  }
+  g.drawImage(SP.rotor[G.tick % 3].c, cx, cy);
+  g.drawImage(SP.copter.c, cx, cy);
+  g.drawImage(SP.tailrotor[G.tick & 3].c, cx + 2, cy + 3);
+  if (m && m.state === "hang") g.drawImage(SP.man_hang[(G.tick >> 3) & 1].c, cx + HANG_X, cy + HANG_Y);
+  g.drawImage(SP.cloud[cl.i].c, Math.round(L(cl.px, cl.x)), cl.y);
+  drawParticles(g);
+  for (const p of G.pops) {
+    if (p.t > p.life - 10 && (p.t & 2)) continue;
+    text(g, p.text, p.x, p.y - p.t * 0.5, { s: 2, align: "center", outline: true, keep: true });
+  }
+  drawStickGuide(g);
+  drawHUD(g, cy);
+  const b = G.banner;
+  if (b && !(b.t > b.life - 16 && (b.t & 2))) {
+    text(g, b.text, W / 2, 78, { s: 4, align: "center", outline: true });
+    text(g, b.sub, W / 2, 114, { s: 2, align: "center", outline: true });
+  }
+  sctx.imageSmoothingEnabled = false;
+  sctx.drawImage(buf, 0, 0, screen.width, screen.height);
+}
+
+/* ------------------------------------------------------------------ layout */
+function layout() {
+  const cs = getComputedStyle(app);
+  const vw = app.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const vh = app.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  if (vw <= 0 || vh <= 0) return;
+  const coarse = matchMedia("(pointer: coarse)").matches;
+  const tall = vh > vw * 1.1;
+  app.classList.toggle("tall", tall); app.classList.toggle("wide", !tall);
+  app.classList.toggle("touch", coarse); app.classList.toggle("mouse", !coarse);
+  const GAP = 12;
+  let sw, sh, nw;
+  if (tall) {
+    nw = clamp(Math.round(vw), 384, 512);
+    sw = vw; sh = (sw * H) / nw;
+    const deckMin = Math.max(210, vh * 0.34);
+    if (vh - sh - GAP < deckMin) { sh = Math.max(150, vh - deckMin - GAP); sw = (sh * nw) / H; }
+    deck.style.width = "";
+    const deckH = vh - sh - GAP;
+    app.style.setProperty("--yoke-max", Math.max(110, deckH - 110) + "px");
+    app.style.setProperty("--drop-size", clamp(Math.min(vw * 0.3, deckH - 110), 88, 132) + "px");
+  } else {
+    const side = coarse ? clamp(vw * 0.17, 104, 150) : 0;
+    const bar = coarse ? 0 : 52;
+    const aw = vw - (side ? side + GAP : 0), ah = vh - (bar ? bar + GAP : 0);
+    nw = clamp(Math.round((H * aw) / ah), 384, 640);
+    let s = Math.min(aw / nw, ah / H);
+    if (!coarse && s >= 2) s = Math.floor(s);
+    sw = nw * s; sh = H * s;
+    deck.style.width = side ? side + "px" : "";
+    app.style.setProperty("--drop-size", clamp(side - 8, 88, 128) + "px");
+  }
+  sw = Math.floor(sw); sh = Math.floor(sh);
+  stage.style.width = sw + "px"; stage.style.height = sh + "px";
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const bw = Math.round(sw * dpr), bh = Math.round(sh * dpr);
+  if (screen.width !== bw || screen.height !== bh) { screen.width = bw; screen.height = bh; }
+  scale = sw / nw;
+  if (nw !== W || buf.width !== nw) {
+    W = nw;
+    buf.width = W; buf.height = H;
+    bctx = buf.getContext("2d"); bctx.imageSmoothingEnabled = false;
+    buildBackground();
+    const c = G.copter;
+    if (c.x > W - 2) c.x = c.px = W - CW - 10;
+    if (G.cloud.x > W) G.cloud.x = G.cloud.px = W;
+  }
+  positionSheet();
+}
+
+function positionSheet() {
+  if (sheet.hidden) return;
+  const ar = app.getBoundingClientRect(), sr = stage.getBoundingClientRect();
+  const st = sheet.style;
+  st.transform = ""; st.right = ""; st.bottom = ""; st.maxHeight = "";
+  if (app.classList.contains("tall")) {
+    const cs = getComputedStyle(app);
+    const padL = parseFloat(cs.paddingLeft), padR = parseFloat(cs.paddingRight), padB = parseFloat(cs.paddingBottom);
+    const avail = ar.width - padL - padR, width = Math.min(560, avail);
+    st.left = padL + (avail - width) / 2 + "px";
+    st.width = width + "px";
+    st.top = sr.bottom - ar.top + 16 + "px";
+    st.bottom = padB + "px";
+    sheet.classList.toggle("compact", ar.bottom - sr.bottom - 16 - padB < 430);
+  } else {
+    const width = Math.min(sr.width - 28, 500);
+    st.width = width + "px";
+    st.left = sr.left - ar.left + sr.width / 2 + "px";
+    st.top = sr.top - ar.top + sr.height / 2 + "px";
+    st.transform = "translate(-50%, -50%)";
+    st.maxHeight = sr.height - 20 + "px";
+    sheet.classList.toggle("compact", sr.height < 480);
+  }
+}
+
+function updateStatus() {
+  const g = GRAV[G.grav] + " GRAVITY";
+  statusEl.textContent = G.mode === "show" ? "LEVEL " + G.level + " · " + PACE[G.pace] + " · " + g
+    : G.mode === "free" ? "FREE FLIGHT · " + PACE[G.pace] + " · " + g : "";
+}
+
+/* ------------------------------------------------------------------ menus */
+function touchHelp() {
+  return app.classList.contains("tall")
+    ? "Drag on the FLY pad (or anywhere on the screen) to fly. Hit DROP, or tap the screen, to let go."
+    : "Drag anywhere on the screen to fly. Hit DROP, or tap the screen, to let go.";
+}
+function showSheet(kind, info = {}) {
+  app.classList.add("menu-open");
+  let html = "";
+  if (kind === "title") {
+    const touch = app.classList.contains("touch");
+    const how = touch ? touchHelp() + " No sound? Turn off silent mode."
+      : "Your mouse is the flight stick. Move it off the center of the screen and the copter flies that way. Click to drop. Arrow keys and the space bar work too.";
+    const records = [];
+    if (store.hi > 0) records.push(`<span>High score <b>${fmt(store.hi)}</b></span>`);
+    if (store.freeBest > 0) records.push(`<span>Best streak <b>${store.freeBest}</b></span>`);
+    html = `
+      <h1 class="sheet-title">BALE OUT!</h1>
+      <p class="sheet-lede">Fly the copter, let go of the stuntman, and land him in the hay wagon. The higher the drop, the bigger the score.</p>
+      <div class="modes">
+        <button class="mode primary" type="button" data-act="show"><span class="mode-name">STUNT SHOW</span><span class="mode-desc">Five stuntmen per level. Land all five to move up. Stay off the horse and the driver.</span></button>
+        <button class="mode" type="button" data-act="free"><span class="mode-name">FREE FLIGHT</span><span class="mode-desc">No score and no game over. Just drop guys in the hay.</span></button>
+      </div>
+      ${records.length ? `<p class="meta">${records.join("")}</p>` : ""}
+      <p class="note">${how}</p>
+      <p class="credit">A tribute to StuntCopter by Duane Blehm, HomeTown Software, 1986. Same rules, new art and code.</p>`;
+  } else if (kind === "paused") {
+    html = `
+      <h2 class="sheet-title">PAUSED</h2>
+      <p class="sheet-lede">${G.mode === "show" ? "Level " + G.level + ", score " + fmt(G.score) + "." : G.hits + " in the hay so far."}</p>
+      <div class="row">
+        <button class="btn primary" type="button" data-act="resume">RESUME</button>
+        <button class="btn" type="button" data-act="menu">MENU</button>
+      </div>`;
+  } else if (kind === "over") {
+    const reasons = {
+      level: `You landed ${G.goodJumps} of 5. All five have to hit the hay to reach the next level.`,
+      driver: "Your stuntman came down on the driver. He'll be fine, but the show is over.",
+      horse: "Your stuntman came down on the horse. Nobody's hurt, but the show is over.",
+    };
+    html = `
+      <h2 class="sheet-title">THAT'S A WRAP!</h2>
+      <p class="sheet-lede">${reasons[G.overReason] || reasons.level}</p>
+      <p class="big-score" aria-label="Final score">${fmt(G.score)}</p>
+      <p class="meta"><span>${info.isHi ? "<b>NEW HIGH SCORE!</b>" : "High score <b>" + fmt(store.hi) + "</b>"}</span><span>Reached level <b>${G.level}</b></span></p>
+      <div class="row">
+        <button class="btn primary" type="button" data-act="again">PLAY AGAIN</button>
+        <button class="btn" type="button" data-act="menu">MENU</button>
+      </div>`;
+  }
+  sheet.innerHTML = html;
+  sheet.setAttribute("aria-label", kind === "title" ? "Bale Out menu" : kind === "paused" ? "Paused" : "Game over");
+  sheet.hidden = false;
+  sheet.dataset.kind = kind;
+  positionSheet();
+  if (lastInput === "key") {
+    const b = sheet.querySelector("button");
+    if (b) b.focus({ preventScroll: true });
+  }
+}
+function hideSheet() { sheet.hidden = true; app.classList.remove("menu-open"); }
+
+sheet.addEventListener("click", e => {
+  const b = e.target.closest("button[data-act]");
+  if (!b) return;
+  Sound.unlock();
+  const act = b.dataset.act;
+  if (act === "show" || act === "free") startGame(act);
+  else if (act === "again") startGame("show");
+  else if (act === "resume") resume();
+  else if (act === "menu") startAttract();
+});
+
+/* ------------------------------------------------------------------ phases */
+let wake = null;
+async function requestWake() {
+  try {
+    if ("wakeLock" in navigator && !wake) {
+      wake = await navigator.wakeLock.request("screen");
+      wake.addEventListener("release", () => { wake = null; });
+    }
+  } catch (e) { wake = null; }
+}
+function releaseWake() { try { if (wake) wake.release(); } catch (e) { /* ignore */ } wake = null; }
+
+function startAttract() {
+  resetWorld();
+  G.mode = "attract"; G.phase = "title";
+  G.pace = 1; G.grav = 4; G.level = 1;
+  G.nextManT = 24;
+  app.classList.remove("playing");
+  Sound.stopRotor(); releaseWake();
+  updateStatus();
+  showSheet("title");
+}
+
+function startGame(mode) {
+  resetWorld();
+  G.mode = mode; G.phase = "play";
+  G.level = 1; G.pace = 1; G.grav = 4;
+  G.score = 0; G.slots = []; G.goodJumps = 0; G.hits = 0; G.streak = 0;
+  G.overReason = "";
+  G.nextManT = 14;
+  input.mouse.active = false; input.touch = null; input.pad = null;
+  hideSheet();
+  pauseBtn.textContent = "PAUSE";
+  app.classList.add("playing");
+  updateStatus();
+  Sound.unlock(); Sound.startRotor();
+  requestWake();
+  announce(mode === "show" ? "Stunt show. Level 1." : "Free flight.");
+}
+
+function pause() {
+  if (G.phase !== "play") return;
+  G.phase = "paused";
+  Sound.stopRotor(); Sound.stopWhistle(); releaseWake();
+  pauseBtn.textContent = "RESUME";
+  showSheet("paused");
+}
+function resume() {
+  if (G.phase !== "paused") return;
+  G.phase = "play";
+  hideSheet();
+  pauseBtn.textContent = "PAUSE";
+  Sound.unlock(); Sound.startRotor(); requestWake();
+  last = performance.now(); acc = 0;
+}
+
+function showGameOver() {
+  G.overPending = false;
+  G.phase = "over";
+  const isHi = G.score > store.hi;
+  if (isHi) { store.hi = G.score; save(); }
+  app.classList.remove("playing");
+  Sound.stopRotor(); Sound.stopWhistle(); Sound.sad(); releaseWake();
+  showSheet("over", { isHi });
+  announce("That's a wrap. Final score " + fmt(G.score) + ".");
+}
+
+function toggleSound() {
+  store.sound = !store.sound; save();
+  Sound.unlock(); Sound.setOn(store.sound);
+  soundBtn.textContent = store.sound ? "SOUND ON" : "SOUND OFF";
+  soundBtn.setAttribute("aria-pressed", String(store.sound));
+}
+
+/* ------------------------------------------------------------------ input wiring */
+const isTap = p => performance.now() - p.t < 260 && p.moved < 12;
+
+screen.addEventListener("pointerdown", e => {
+  lastInput = "pointer";
+  Sound.unlock();
+  if (e.pointerType === "mouse") {
+    mouseYoke(e);
+    if (e.button === 0) drop();
+    return;
+  }
+  e.preventDefault();
+  try { screen.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+  const p = { id: e.pointerId, ox: e.clientX, oy: e.clientY, t: performance.now(), moved: 0, sx: 0, sy: 0, onStage: true };
+  if (!input.touch) input.touch = p; else input.taps.set(e.pointerId, p);
+});
+screen.addEventListener("pointermove", e => {
+  if (e.pointerType === "mouse") return;
+  const t = input.touch;
+  if (t && t.id === e.pointerId) {
+    const dx = e.clientX - t.ox, dy = e.clientY - t.oy;
+    t.moved = Math.max(t.moved, Math.hypot(dx, dy));
+    t.sx = axis(dx); t.sy = axis(dy);
+  } else if (input.taps.has(e.pointerId)) {
+    const p = input.taps.get(e.pointerId);
+    p.moved = Math.max(p.moved, Math.hypot(e.clientX - p.ox, e.clientY - p.oy));
+  }
+});
+function endStageTouch(e) {
+  if (e.pointerType === "mouse") return;
+  const t = input.touch;
+  if (t && t.id === e.pointerId) {
+    if (e.type === "pointerup" && isTap(t)) drop();
+    input.touch = null;
+  } else if (input.taps.has(e.pointerId)) {
+    const p = input.taps.get(e.pointerId);
+    if (e.type === "pointerup" && isTap(p)) drop();
+    input.taps.delete(e.pointerId);
+  }
+}
+screen.addEventListener("pointerup", endStageTouch);
+screen.addEventListener("pointercancel", endStageTouch);
+screen.addEventListener("contextmenu", e => e.preventDefault());
+
+function mouseYoke(e) {
+  const r = screen.getBoundingClientRect();
+  if (!r.width) return;
+  const lx = ((e.clientX - r.left) / r.width) * W, ly = ((e.clientY - r.top) / r.height) * H;
+  const ax = (d, span) => (Math.abs(d) < 5 ? 0 : clamp((d - Math.sign(d) * 5) / span, -1, 1));
+  input.mouse.sx = ax(lx - W / 2, 52);
+  input.mouse.sy = ax(ly - 150, 40);
+  input.mouse.active = true;
+}
+window.addEventListener("pointermove", e => { if (e.pointerType === "mouse" && G.phase === "play") mouseYoke(e); });
+
+function setKnob(dx, dy) { yokeKnob.style.setProperty("--kx", dx + "px"); yokeKnob.style.setProperty("--ky", dy + "px"); }
+yoke.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  lastInput = "pointer";
+  Sound.unlock();
+  try { yoke.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+  input.pad = { id: e.pointerId, ox: e.clientX, oy: e.clientY, sx: 0, sy: 0 };
+  setKnob(0, 0);
+});
+yoke.addEventListener("pointermove", e => {
+  const p = input.pad;
+  if (!p || p.id !== e.pointerId) return;
+  const dx = e.clientX - p.ox, dy = e.clientY - p.oy;
+  p.sx = axis(dx); p.sy = axis(dy);
+  const lim = yoke.clientWidth * 0.3;
+  setKnob(clamp(dx, -lim, lim), clamp(dy, -lim, lim));
+});
+const endPad = e => { if (input.pad && input.pad.id === e.pointerId) { input.pad = null; setKnob(0, 0); } };
+yoke.addEventListener("pointerup", endPad);
+yoke.addEventListener("pointercancel", endPad);
+
+dropBtn.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  lastInput = "pointer";
+  Sound.unlock();
+  dropBtn.classList.add("is-down");
+  drop();
+});
+["pointerup", "pointercancel", "pointerleave"].forEach(t => dropBtn.addEventListener(t, () => dropBtn.classList.remove("is-down")));
+dropBtn.addEventListener("click", e => { if (e.detail === 0) drop(); });
+pauseBtn.addEventListener("click", () => { if (G.phase === "play") pause(); else if (G.phase === "paused") resume(); });
+soundBtn.addEventListener("click", toggleSound);
+
+const KEYMAP = { ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right", ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down" };
+window.addEventListener("keydown", e => {
+  lastInput = "key";
+  Sound.unlock();
+  const k = KEYMAP[e.code];
+  if (k) { input.keys.add(k); if (G.phase === "play") e.preventDefault(); return; }
+  if (e.code === "Space" || e.code === "Enter") {
+    if (G.phase === "play" && !(e.code === "Enter" && document.activeElement && document.activeElement.tagName === "BUTTON")) { e.preventDefault(); drop(); }
+  } else if (e.code === "KeyP" || e.code === "Escape" || e.code === "Backspace") {
+    if (G.phase === "play") { e.preventDefault(); pause(); }
+    else if (G.phase === "paused" && e.code !== "Backspace") { e.preventDefault(); resume(); }
+  } else if (e.code === "KeyM") toggleSound();
+});
+window.addEventListener("keyup", e => { const k = KEYMAP[e.code]; if (k) input.keys.delete(k); });
+
+["touchend", "pointerup", "click"].forEach(t => document.addEventListener(t, () => Sound.unlock(), { passive: true }));
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    if (G.phase === "play") pause();
+    if (Sound.ctx) Sound.ctx.suspend().catch(() => {});
+  } else if (Sound.ctx && G.phase === "play") Sound.unlock();
+});
+window.addEventListener("blur", () => { if (G.phase === "play") pause(); input.keys.clear(); });
+window.addEventListener("resize", layout);
+if (window.visualViewport) window.visualViewport.addEventListener("resize", layout);
+
+/* ------------------------------------------------------------------ loop + boot */
+let last = performance.now(), acc = 0;
+function frame(now) {
+  let dt = now - last;
+  last = now;
+  if (dt > 250) dt = 250;
+  const running = G.phase !== "paused";
+  if (running) {
+    acc += dt;
+    let n = 0;
+    while (acc >= STEP && n < 8) { tick(); acc -= STEP; n++; }
+    if (n === 8) acc = 0;
+  }
+  render(running ? acc / STEP : 1);
+  requestAnimationFrame(frame);
+}
+
+function boot(data) {
+  load(data);
+  soundBtn.textContent = store.sound ? "SOUND ON" : "SOUND OFF";
+  soundBtn.setAttribute("aria-pressed", String(store.sound));
+  buf.width = W; buf.height = H;
+  bctx = buf.getContext("2d"); bctx.imageSmoothingEnabled = false;
+  buildBackground();
+  layout();
+  startAttract();
+  layout();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(positionSheet).catch(() => {});
+  requestAnimationFrame(frame);
+  window.baleOut = { G, tick, release, drop, startGame, layout, consts: { GROUND, HAY_TOP, HANG_X, HANG_Y, CH, WAG_W } };
+}
+
+const hot = window.claude && window.claude.hot;
+if (hot && typeof hot.snapshot === "function") {
+  try { hot.snapshot(() => ({ hi: store.hi, freeBest: store.freeBest, sound: store.sound })); } catch (e) { /* ignore */ }
+}
+const start = data => boot(data || {});
+if (hot && typeof hot.ready === "function") hot.ready(start);
+else start((hot && hot.data) || {});
+})();
+</script>
+
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => { navigator.serviceWorker.register("sw.js").catch(() => {}); });
+}
+</script>
+</body>
+</html>

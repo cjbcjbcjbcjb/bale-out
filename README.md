@@ -1,0 +1,22 @@
+# Bale Out
+
+Fly the copter, let go of the stuntman, and land him in the hay wagon.
+
+Play it at **https://cjbcjbcjbcjb.github.io/bale-out/**
+
+## Put it on your iPhone home screen
+
+1. Open the link above in Safari.
+2. Tap Share, then **Add to Home Screen**, then **Add**.
+3. Open it from the new icon. It runs full screen, and after the first launch it works offline.
+
+## Controls
+
+- **Phone:** drag the FLY pad (or the game screen) to fly. Tap DROP, or tap the screen, to let go.
+- **Computer:** the mouse is the flight stick. Click to drop. Arrow keys and the space bar also work. P pauses, M mutes.
+
+## Credits
+
+A tribute to StuntCopter, the 1986 Macintosh game by Duane Blehm (HomeTown Software). The rules follow his
+released source code; the art, sound and code here are new. The pixel font is Silkscreen by Jason Kottke,
+used under the SIL Open Font License (see `fonts/OFL.txt`).

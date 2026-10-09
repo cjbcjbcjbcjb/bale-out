@@ -288,7 +288,8 @@ const COPTER_MIN_Y = -2, COPTER_MAX_Y = GROUND - 22 - 10 - CH;
 const PACE = ["", "WALK", "TROT", "GALLOP"];
 const GRAV = ["", "FLOATY", "LIGHT", "NORMAL", "HEAVY"];
 const CHEERS = ["NICE!", "TA-DA!", "YEEHAW!", "SOFT ONE!", "HAY THERE!"];
-const STICK_R = 42;  // css px of thumb travel for full stick
+const STICK_R = 42;
+const CLOUD_PTS = 20;  // cloud bonus per level for every tick the stuntman spends inside a cloud  // css px of thumb travel for full stick
 let W = 512;
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -723,6 +724,11 @@ const Sound = {
     [1, 1.26, 1.5, 2].forEach((r, i) => this.tone(base * r, t0 + starts[i], 0.7 - starts[i], { vol: 0.045 }));
   },
   hay() { if (this.ready()) this.hiss(this.ctx.currentTime, 0.16, 0.22, 2600, "bandpass", 0.9); },
+  bonus() {
+    if (!this.ready()) return;
+    const t0 = this.ctx.currentTime + 0.4;
+    [1047, 1319, 1568, 2093].forEach((f, i) => this.tone(f, t0 + i * 0.055, 0.08, { type: "triangle", vol: 0.07 }));
+  },
   thud() {
     if (!this.ready()) return;
     const t0 = this.ctx.currentTime;
@@ -831,7 +837,7 @@ function readStick() {
 function release() {
   const m = G.man, c = G.copter;
   if (!m || m.state !== "hang") return false;
-  m.state = "fall"; m.f = 0; m.decided = false; m.target = null;
+  m.state = "fall"; m.f = 0; m.decided = false; m.target = null; m.cloud = 0; m.inCloud = false;
   m.x = m.px = c.x + HANG_X; m.y = m.py = c.y + HANG_Y;
   m.h0 = GROUND - (c.y + CH);
   if (G.mode !== "attract") {
@@ -892,15 +898,18 @@ function landInHay(m, rel) {
   }
   if (G.mode === "show") {
     const pts = G.level * m.h0 * 10;
+    const bonus = G.level * (m.cloud || 0) * CLOUD_PTS;
     const best = topScore();
-    G.score += pts; G.goodJumps++; G.slots.push(true);
+    G.score += pts + bonus; G.goodJumps++; G.slots.push(true);
     notePending();
     pop("+" + fmt(pts), lx, HAY_TOP - 24);
-    announce("In the hay. " + fmt(pts) + " points.");
+    if (bonus > 0) pop("CLOUD +" + fmt(bonus), lx, HAY_TOP - 44);
+    announce("In the hay. " + fmt(pts) + " points" + (bonus > 0 ? ", plus a " + fmt(bonus) + " point cloud bonus." : "."));
     Sound.hay(); Sound.fanfare(G.level);
+    if (bonus > 0) Sound.bonus();
     if (best > 0 && G.score > best && !G.recordSet) {
       G.recordSet = true;
-      pop("NEW RECORD!", lx, HAY_TOP - 44);
+      pop("NEW RECORD!", lx, HAY_TOP - (bonus > 0 ? 64 : 44));
       Sound.levelUp();
       announce("New record! " + fmt(G.score) + " points.");
     }
@@ -910,6 +919,7 @@ function landInHay(m, rel) {
     if (G.streak > store.freeBest) { store.freeBest = G.streak; save(); }
     const center = Math.abs(rel - 21) <= 3;
     pop(G.streak >= 3 ? G.streak + " IN A ROW!" : center ? "BULLSEYE!" : pick(CHEERS), lx, HAY_TOP - 24);
+    if ((m.cloud || 0) >= 8) pop("CLOUD DIVE!", lx, HAY_TOP - 44);
     announce("In the hay. " + G.streak + " in a row.");
     Sound.hay(); Sound.fanfare(1);
   }
@@ -969,7 +979,8 @@ function stepMan() {
   if (m.state === "fall") {
     if (!m.decided) {
       if (m.y + 15 >= HAY_TOP) { decide(m); return; }
-      if (inCloud(m.x + 7, m.y + 7)) { m.x += randInt(-3, 3); m.y += 1; }
+      m.inCloud = inCloud(m.x + 7, m.y + 7);
+      if (m.inCloud) { m.x += randInt(-3, 3); m.y += 1; m.cloud = (m.cloud || 0) + 1; }
       else m.y += G.grav;
     } else {
       m.y += G.grav;
@@ -1202,6 +1213,11 @@ function render(alpha) {
   g.drawImage(SP.tailrotor[G.tick & 3].c, cx + 2, cy + 3);
   if (m && m.state === "hang") g.drawImage(SP.man_hang[(G.tick >> 3) & 1].c, cx + HANG_X, cy + HANG_Y);
   g.drawImage(SP.cloud[cl.i].c, Math.round(L(cl.px, cl.x)), cl.y);
+  if (G.mode === "show" && m && m.state === "fall" && !m.decided && m.cloud > 0) {
+    const mx = Math.round(L(m.px, m.x)) + 7, my = Math.round(L(m.py, m.y));
+    const label = "CLOUD +" + fmt(G.level * m.cloud * CLOUD_PTS);
+    text(g, label, mx, m.inCloud ? Math.max(3, cl.y - 16) : Math.max(3, my - 18), { s: 2, align: "center", outline: true, keep: true });
+  }
   drawParticles(g);
   for (const p of G.pops) {
     if (p.t > p.life - 10 && (p.t & 2)) continue;
@@ -1344,7 +1360,7 @@ function showSheet(kind, info = {}) {
       <h1 class="sheet-title">BALE OUT!</h1>
       ${board || `<p class="sheet-lede">Fly the copter, let go of the stuntman, and land him in the hay wagon. The higher the drop, the bigger the score.</p>`}
       <div class="modes">
-        <button class="mode primary" type="button" data-act="show"><span class="mode-name">STUNT SHOW</span><span class="mode-desc">Five stuntmen per level. Land all five to move up. Stay off the horse and the driver.</span></button>
+        <button class="mode primary" type="button" data-act="show"><span class="mode-name">STUNT SHOW</span><span class="mode-desc">Five stuntmen per level. Land all five to move up. Stay off the horse and the driver. Falling through a cloud earns a bonus.</span></button>
         <button class="mode" type="button" data-act="free"><span class="mode-name">FREE FLIGHT</span><span class="mode-desc">No score and no game over. Just drop guys in the hay.</span></button>
       </div>
       ${records.length ? `<p class="meta">${records.join("")}</p>` : ""}

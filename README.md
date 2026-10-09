@@ -10,6 +10,11 @@ Play it at **https://cjbcjbcjbcjb.github.io/bale-out/**
 2. Tap Share, then **Add to Home Screen**, then **Add**.
 3. Open it from the new icon. It runs full screen, and after the first launch it works offline.
 
+## Scoring
+
+A stuntman who lands in the hay scores the level number times the height of the drop. If he fell through a cloud on
+the way down, he also earns a cloud bonus for every moment he spent inside it, but only if he still lands in the hay.
+
 ## High scores
 
 The top five Stunt Show scores go in a Hall of Fame, each with the name of whoever set it. Scores are saved after

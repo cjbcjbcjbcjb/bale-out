@@ -1,5 +1,5 @@
 /* Bale Out offline support: serve from cache first, refresh the cache in the background. */
-const CACHE = "bale-out-v3";
+const CACHE = "bale-out-v4";
 const INDEX = new URL("./index.html", self.location).href;
 const ASSETS = [
   "./index.html",

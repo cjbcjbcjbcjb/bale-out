@@ -10,6 +10,12 @@ Play it at **https://cjbcjbcjbcjb.github.io/bale-out/**
 2. Tap Share, then **Add to Home Screen**, then **Add**.
 3. Open it from the new icon. It runs full screen, and after the first launch it works offline.
 
+## High scores
+
+The top five Stunt Show scores go in a Hall of Fame, each with the name of whoever set it. Scores are saved after
+every landing, so closing the app mid-game doesn't lose them. When `SYNC_URL` in `index.html` points at a Firebase
+Realtime Database (rules in `firebase-rules.json`), the Hall of Fame is shared by every device that plays.
+
 ## Controls
 
 - **Phone:** drag the FLY pad (or the game screen) to fly. Tap DROP, or tap the screen, to let go.

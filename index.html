@@ -110,7 +110,7 @@ body {
 #status {
   grid-area: status; margin: 0;
   font: 400 12px/1.35 var(--font-px); letter-spacing: 0.06em;
-  color: var(--ink-soft); text-align: center; text-wrap: balance;
+  color: var(--ink-soft); text-align: center; text-wrap: balance; white-space: pre-line;
 }
 .wide.touch #status { font-size: 11px; }
 #yoke {
@@ -193,9 +193,58 @@ body {
 #sheet.compact .credit { font-size: 11.5px; padding-top: 8px; }
 #sheet.compact .big-score { font-size: 28px; }
 #sheet.compact .btn { padding: 11px 14px 10px; font-size: 14px; }
+
+/* Hall of Fame board: a printed scorecard inside the sheet */
+.hof { display: flex; flex-direction: column; gap: 6px; }
+.hof-title { margin: 0; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font: 700 14px/1 var(--font-px); letter-spacing: 0.1em; }
+.hof-sync { font: 400 10px/1 var(--font-px); letter-spacing: 0.08em; opacity: 0.7; }
+.hof-list { margin: 0; padding: 0; list-style: none; border-top: 2px solid var(--pix); }
+.hof-row {
+  display: grid; grid-template-columns: 2.2ch minmax(0, 1fr) auto 5.5ch; gap: 10px; align-items: baseline;
+  padding: 6px 6px 5px; border-bottom: 1px dashed var(--pix);
+  font: 400 14px/1.15 var(--font-px); font-variant-numeric: tabular-nums;
+}
+.hof-row:first-child { font-weight: 700; }
+.hof-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hof-score { text-align: right; }
+.hof-lv { text-align: right; font-size: 11px; }
+.hof-row.is-new { background: var(--pix); color: var(--phos); }
+.rank-call { margin: 0; font: 700 15px/1.2 var(--font-px); letter-spacing: 0.04em; }
+.pilot { display: flex; flex-direction: column; gap: 10px; }
+.pilot-q { margin: 0; font: 700 14px/1 var(--font-px); letter-spacing: 0.08em; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  font: 700 15px/1 var(--font-px); letter-spacing: 0.04em;
+  padding: 12px 14px 11px; border: 2px solid var(--pix); border-radius: 10px;
+  background: var(--pix); color: var(--phos); box-shadow: 3px 3px 0 var(--pix);
+  cursor: pointer; touch-action: manipulation; max-width: 100%;
+}
+.newname { display: flex; gap: 8px; }
+.newname input {
+  flex: 1 1 auto; min-width: 0;
+  font: 400 16px/1 var(--font-px); letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 11px 12px 10px; border: 2px solid var(--pix); border-radius: 10px;
+  background: var(--phos); color: var(--pix);
+  -webkit-user-select: text; user-select: text;
+}
+.newname input::placeholder { color: var(--pix); opacity: 0.45; }
+.newname input:focus-visible { outline: 3px dashed var(--pix); outline-offset: 2px; }
+.newname .btn { flex: 0 0 auto; }
+.linkbtn {
+  align-self: flex-start; padding: 4px 0; border: 0; background: none; color: var(--pix);
+  font: 13px/1.3 var(--font-ui); text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.chip:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--pix); }
+.chip:focus-visible, .linkbtn:focus-visible { outline: 3px dashed var(--pix); outline-offset: 3px; }
+#sheet.compact .hof-row { padding: 4px 6px 3px; font-size: 13px; }
+#sheet.compact .chip { padding: 10px 12px 9px; font-size: 14px; }
+@media (prefers-reduced-motion: no-preference) {
+  .hof-row.is-new { animation: hof-blink 0.5s steps(1) 6; }
+  @keyframes hof-blink { 50% { background: var(--phos); color: var(--pix); } }
+}
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) {
-  .key:active, .key.is-down, #drop:active, #drop.is-down, .mode:active, .btn:active { transform: none; }
+  .key:active, .key.is-down, #drop:active, #drop.is-down, .mode:active, .btn:active, .chip:active { transform: none; }
 }
 </style>
 </head>
@@ -250,22 +299,176 @@ const pad = (n, k) => String(Math.max(0, Math.floor(n))).padStart(k, "0");
 const fmt = n => Math.floor(n).toLocaleString("en-US");
 
 /* ------------------------------------------------------------------ storage */
-const store = { hi: 0, freeBest: 0, sound: true };
+// v2 adds the Hall of Fame. board = this device's best scores with names; remote = the shared board last
+// fetched from the online scoreboard; outbox = new entries still waiting to upload; names = recent pilots
+// (newest first); pending = the score of a show in progress, saved after every landing so a closed app
+// loses nothing.
+const BOARD_SIZE = 5, MAX_NAMES = 6;
+// Firebase Realtime Database address for a scoreboard shared across devices. Empty = this device only.
+const SYNC_URL = "";
+const store = { v: 2, hi: 0, freeBest: 0, sound: true, board: [], remote: [], outbox: [], names: [], pending: null };
 const KEY = "bale-out-v1";
+const validEntry = e => !!e && typeof e.n === "string" && e.n.length > 0 && Number.isFinite(e.s) && e.s > 0;
+const entryKey = e => e.id || e.n + "|" + e.s + "|" + (e.d || "");
+const esc = v => String(v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function cleanName(v) {
+  return String(v || "").toUpperCase().replace(/[^\p{L}\p{N} !.'-]/gu, "").replace(/\s+/g, " ").trim().slice(0, 10);
+}
+function cleanEntry(e) {
+  if (!e || typeof e !== "object") return null;
+  const n = cleanName(e.n), s = Number(e.s);
+  if (!n || !Number.isFinite(s) || s <= 0) return null;
+  return { id: typeof e.id === "string" ? e.id.slice(0, 32) : undefined, n, s: Math.floor(s), l: Number.isFinite(e.l) ? e.l : 0, d: typeof e.d === "string" ? e.d.slice(0, 10) : "" };
+}
+const cleanList = (a, max) => (Array.isArray(a) ? a.map(cleanEntry).filter(Boolean).sort((x, y) => y.s - x.s).slice(0, max) : []);
 function load(extra) {
   try {
     const s = JSON.parse(localStorage.getItem(KEY) || "{}");
     if (Number.isFinite(s.hi)) store.hi = s.hi;
     if (Number.isFinite(s.freeBest)) store.freeBest = s.freeBest;
     if (typeof s.sound === "boolean") store.sound = s.sound;
+    store.board = cleanList(s.board, BOARD_SIZE);
+    store.remote = cleanList(s.remote, BOARD_SIZE);
+    store.outbox = cleanList(s.outbox, 50).filter(e => e.id);
+    if (Array.isArray(s.names)) store.names = s.names.map(cleanName).filter(Boolean).slice(0, MAX_NAMES);
+    if (s.pending && Number.isFinite(s.pending.s) && s.pending.s > 0) store.pending = s.pending;
+    // A high score saved by the first version has no name: offer it up to be claimed, once.
+    if (s.v !== 2 && store.hi > 0 && !store.board.length && !store.pending) store.pending = { s: store.hi, l: 0, legacy: true };
+    // The first launch with the shared scoreboard switched on uploads the scores this device already has.
+    store.seeded = s.seeded === true;
+    if (SYNC_URL && !store.seeded) {
+      for (const e of store.board) {
+        if (!e.id) e.id = newId();
+        if (!store.outbox.some(o => o.id === e.id)) store.outbox.push(e);
+      }
+      store.seeded = true;
+    }
   } catch (e) { /* storage blocked: play without it */ }
   if (extra && typeof extra === "object") {
-    if (Number.isFinite(extra.hi)) store.hi = Math.max(store.hi, extra.hi);
     if (Number.isFinite(extra.freeBest)) store.freeBest = Math.max(store.freeBest, extra.freeBest);
     if (typeof extra.sound === "boolean") store.sound = extra.sound;
+    if (!store.board.length) store.board = cleanList(extra.board, BOARD_SIZE);
+    if (!store.names.length && Array.isArray(extra.names)) store.names = extra.names.map(cleanName).filter(Boolean).slice(0, MAX_NAMES);
   }
+  save();
 }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) { /* ignore */ } }
+
+const today = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+// The board people see: the shared board merged with this device's entries (including any not uploaded yet).
+function boardEntries() {
+  const seen = new Map();
+  for (const e of store.remote.concat(store.board)) if (validEntry(e) && !seen.has(entryKey(e))) seen.set(entryKey(e), e);
+  return [...seen.values()].sort((a, b) => b.s - a.s).slice(0, BOARD_SIZE);
+}
+const topEntry = () => boardEntries()[0] || null;
+const topScore = () => { const t = topEntry(); return t ? t.s : 0; };
+function qualifies(score) {
+  if (!(score > 0)) return false;
+  const b = boardEntries();
+  return b.length < BOARD_SIZE || score > b[b.length - 1].s;
+}
+function rankFor(score) { let r = 1; for (const e of boardEntries()) if (e.s >= score) r++; return r; }
+function suggestedNames() {
+  const out = [];
+  for (const n of store.names.concat(boardEntries().map(e => e.n))) if (n && !out.includes(n)) out.push(n);
+  return out.slice(0, MAX_NAMES);
+}
+function addToBoard(name, run) {
+  const entry = { id: newId(), n: name, s: Math.floor(run.s), l: run.l || 0, d: run.d || today() };
+  store.board = store.board.concat(entry).sort((a, b) => b.s - a.s).slice(0, BOARD_SIZE);
+  store.names = [name, ...store.names.filter(n => n !== name)].slice(0, MAX_NAMES);
+  store.hi = Math.max(store.hi, entry.s);
+  if (SYNC_URL) store.outbox.push(entry);
+  save();
+  syncNow();
+  return entry;
+}
+function notePending() {
+  if (G.mode !== "show" || !(G.score > 0)) return;
+  store.pending = { s: G.score, l: G.level, d: today() };
+  save();
+}
+function clearPending() { if (store.pending) { store.pending = null; save(); } }
+
+/* ------------------------------------------------------------------ shared scoreboard (Firebase REST) */
+// Reads use fetch, falling back to JSONP. Uploads are plain POSTs, and every upload is confirmed by
+// reading it back by its id, so a retry can never post the same score twice.
+const sync = { state: SYNC_URL ? "idle" : "off", running: null };
+function dbUrl(path, params) {
+  const q = params ? "?" + Object.entries(params).map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&") : "";
+  return SYNC_URL.replace(/\/+$/, "") + "/" + path + ".json" + q;
+}
+function jsonp(url) {
+  return new Promise((resolve, reject) => {
+    const cb = "__baleOut" + Math.random().toString(36).slice(2);
+    const el = document.createElement("script");
+    const timer = setTimeout(() => done(new Error("timeout")), 9000);
+    function done(err, data) {
+      clearTimeout(timer);
+      try { delete window[cb]; } catch (e) { window[cb] = undefined; }
+      el.remove();
+      if (err) reject(err); else resolve(data);
+    }
+    window[cb] = data => done(null, data);
+    el.onerror = () => done(new Error("jsonp failed"));
+    el.src = url + (url.includes("?") ? "&" : "?") + "callback=" + cb;
+    document.head.appendChild(el);
+  });
+}
+async function getJSON(url) {
+  let data;
+  try {
+    const r = await fetch(url, { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    data = await r.json();
+  } catch (e) {
+    data = await jsonp(url);
+  }
+  if (data && typeof data === "object" && typeof data.error === "string") throw new Error(data.error);
+  return data;
+}
+async function onServer(id) {
+  const d = await getJSON(dbUrl("scores", { orderBy: '"id"', equalTo: JSON.stringify(id) }));
+  return !!d && typeof d === "object" && Object.keys(d).length > 0;
+}
+async function pushOutbox() {
+  for (const e of store.outbox.slice()) {
+    if (!(await onServer(e.id))) {
+      const body = JSON.stringify({ id: e.id, n: e.n, s: e.s, l: e.l || 0, d: e.d || "", t: { ".sv": "timestamp" } });
+      try { await fetch(dbUrl("scores"), { method: "POST", body }); } catch (err) { /* may still have landed; checked next */ }
+      if (!(await onServer(e.id))) throw new Error("upload not confirmed");
+    }
+    store.outbox = store.outbox.filter(x => x.id !== e.id);
+    save();
+  }
+}
+async function pullBoard() {
+  const d = await getJSON(dbUrl("scores", { orderBy: '"s"', limitToLast: BOARD_SIZE * 3 }));
+  const seen = new Set();
+  store.remote = cleanList(Object.values(d && typeof d === "object" ? d : {}), 100)
+    .filter(e => { const k = entryKey(e); if (seen.has(k)) return false; seen.add(k); return true; })
+    .slice(0, BOARD_SIZE);
+  save();
+}
+function syncNow() {
+  if (!SYNC_URL) return Promise.resolve();
+  if (sync.running) return sync.running;
+  sync.state = "syncing";
+  sync.running = (async () => {
+    try { await pushOutbox(); await pullBoard(); sync.state = "ok"; }
+    catch (e) { sync.state = "error"; }
+    finally { sync.running = null; onBoardChanged(); }
+  })();
+  return sync.running;
+}
+function syncLabel() {
+  if (!SYNC_URL) return "";
+  if (sync.state === "syncing") return "SYNCING";
+  if (store.outbox.length) return "WAITING TO SYNC";
+  return sync.state === "ok" ? "SHARED" : sync.state === "error" ? "OFFLINE" : "";
+}
 
 /* ------------------------------------------------------------------ sprites */
 function makeSprite(rows, invert) {
@@ -655,6 +858,7 @@ function levelUp() {
   G.slots = []; G.goodJumps = 0;
   G.banner = { text: "LEVEL " + G.level, sub: PACE[G.pace] + " · " + GRAV[G.grav] + " GRAVITY", t: 0, life: 84 };
   Sound.levelUp();
+  notePending();
   updateStatus();
   announce("Level " + G.level + ". The wagon is at a " + PACE[G.pace].toLowerCase() + ", gravity is " + GRAV[G.grav].toLowerCase() + ".");
 }
@@ -688,10 +892,19 @@ function landInHay(m, rel) {
   }
   if (G.mode === "show") {
     const pts = G.level * m.h0 * 10;
+    const best = topScore();
     G.score += pts; G.goodJumps++; G.slots.push(true);
+    notePending();
     pop("+" + fmt(pts), lx, HAY_TOP - 24);
     announce("In the hay. " + fmt(pts) + " points.");
     Sound.hay(); Sound.fanfare(G.level);
+    if (best > 0 && G.score > best && !G.recordSet) {
+      G.recordSet = true;
+      pop("NEW RECORD!", lx, HAY_TOP - 44);
+      Sound.levelUp();
+      announce("New record! " + fmt(G.score) + " points.");
+    }
+    updateStatus();
   } else if (G.mode === "free") {
     G.hits++; G.streak++;
     if (G.streak > store.freeBest) { store.freeBest = G.streak; save(); }
@@ -933,14 +1146,14 @@ function drawHUD(g, cy) {
     }
     x += 76;
     text(g, "SCORE " + pad(G.score, 6), x, y1, { s: 2, col: "paper" });
-    text(g, "HIGH  " + pad(Math.max(store.hi, G.score), 6), x, y2, { s: 2, col: "paper" });
+    text(g, "HIGH  " + pad(Math.max(topScore(), G.score), 6), x, y2, { s: 2, col: "paper" });
   } else if (G.mode === "free") {
     text(g, "HITS " + pad(G.hits, 3), x, y1, { s: 2, col: "paper" });
     text(g, "STREAK " + pad(G.streak, 2), x, y2, { s: 2, col: "paper" });
     text(g, "BEST " + pad(store.freeBest, 2), x + 124, y1, { s: 2, col: "paper" });
   } else {
     text(g, "DEMO", x, y1, { s: 2, col: "paper" });
-    text(g, "HIGH " + pad(store.hi, 6), x, y2, { s: 2, col: "paper" });
+    text(g, "HIGH " + pad(topScore(), 6), x, y2, { s: 2, col: "paper" });
   }
   const rx = W - 7;
   text(g, G.mode === "show" ? "LV " + pad(G.level, 2) : G.mode === "free" ? "FREE" : "", rx, y1, { s: 2, col: "paper", align: "right" });
@@ -1082,8 +1295,11 @@ function positionSheet() {
 
 function updateStatus() {
   const g = GRAV[G.grav] + " GRAVITY";
-  statusEl.textContent = G.mode === "show" ? "LEVEL " + G.level + " · " + PACE[G.pace] + " · " + g
+  let line = G.mode === "show" ? "LEVEL " + G.level + " · " + PACE[G.pace] + " · " + g
     : G.mode === "free" ? "FREE FLIGHT · " + PACE[G.pace] + " · " + g : "";
+  const t = topEntry();
+  if (G.mode === "show" && t) line += G.score > t.s ? "\nNEW HIGH SCORE!" : "\nTO BEAT: " + t.n + " " + fmt(t.s);
+  statusEl.textContent = line;
 }
 
 /* ------------------------------------------------------------------ menus */
@@ -1091,6 +1307,28 @@ function touchHelp() {
   return app.classList.contains("tall")
     ? "Drag on the FLY pad (or anywhere on the screen) to fly. Hit DROP, or tap the screen, to let go."
     : "Drag anywhere on the screen to fly. Hit DROP, or tap the screen, to let go.";
+}
+function boardHtml(highlightId) {
+  const list = boardEntries();
+  if (!list.length) return "";
+  const label = syncLabel();
+  const rows = list.map((e, i) => `<li class="hof-row${highlightId && e.id === highlightId ? " is-new" : ""}">` +
+    `<span class="hof-rank">${i + 1}</span><span class="hof-name">${esc(e.n)}</span>` +
+    `<span class="hof-score">${fmt(e.s)}</span><span class="hof-lv">${e.l ? "LV " + e.l : ""}</span></li>`).join("");
+  return `<section class="hof" aria-label="Hall of Fame"><h2 class="hof-title"><span>HALL OF FAME</span>${label ? `<span class="hof-sync">${label}</span>` : ""}</h2><ol class="hof-list">${rows}</ol></section>`;
+}
+function pilotPicker() {
+  const names = suggestedNames();
+  const chips = names.map(n => `<button class="chip" type="button" data-act="pick" data-name="${esc(n)}" aria-label="Save as ${esc(n)}">${esc(n)}</button>`).join("");
+  return `<div class="pilot">
+      <p class="pilot-q">WHO WAS FLYING?</p>
+      ${chips ? `<div class="chips">${chips}</div>` : ""}
+      <form class="newname" autocomplete="off">
+        <input id="pilotName" name="pilot" type="text" maxlength="10" placeholder="${chips ? "OR A NEW NAME" : "YOUR NAME"}" aria-label="Pilot name" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="done">
+        <button class="btn primary" type="submit">SAVE</button>
+      </form>
+      <button class="linkbtn" type="button" data-act="skip">Don't save this score</button>
+    </div>`;
 }
 function showSheet(kind, info = {}) {
   app.classList.add("menu-open");
@@ -1100,11 +1338,11 @@ function showSheet(kind, info = {}) {
     const how = touch ? touchHelp() + " No sound? Turn off silent mode."
       : "Your mouse is the flight stick. Move it off the center of the screen and the copter flies that way. Click to drop. Arrow keys and the space bar work too.";
     const records = [];
-    if (store.hi > 0) records.push(`<span>High score <b>${fmt(store.hi)}</b></span>`);
-    if (store.freeBest > 0) records.push(`<span>Best streak <b>${store.freeBest}</b></span>`);
+    if (store.freeBest > 0) records.push(`<span>Best Free Flight streak <b>${store.freeBest}</b></span>`);
+    const board = boardHtml(info.highlight);
     html = `
       <h1 class="sheet-title">BALE OUT!</h1>
-      <p class="sheet-lede">Fly the copter, let go of the stuntman, and land him in the hay wagon. The higher the drop, the bigger the score.</p>
+      ${board || `<p class="sheet-lede">Fly the copter, let go of the stuntman, and land him in the hay wagon. The higher the drop, the bigger the score.</p>`}
       <div class="modes">
         <button class="mode primary" type="button" data-act="show"><span class="mode-name">STUNT SHOW</span><span class="mode-desc">Five stuntmen per level. Land all five to move up. Stay off the horse and the driver.</span></button>
         <button class="mode" type="button" data-act="free"><span class="mode-name">FREE FLIGHT</span><span class="mode-desc">No score and no game over. Just drop guys in the hay.</span></button>
@@ -1121,30 +1359,64 @@ function showSheet(kind, info = {}) {
         <button class="btn" type="button" data-act="menu">MENU</button>
       </div>`;
   } else if (kind === "over") {
+    const run = info.run || { s: G.score, l: G.level };
     const reasons = {
       level: `You landed ${G.goodJumps} of 5. All five have to hit the hay to reach the next level.`,
       driver: "Your stuntman came down on the driver. He'll be fine, but the show is over.",
       horse: "Your stuntman came down on the horse. Nobody's hurt, but the show is over.",
+      quit: `You ended the show at level ${run.l}.`,
     };
-    html = `
-      <h2 class="sheet-title">THAT'S A WRAP!</h2>
-      <p class="sheet-lede">${reasons[G.overReason] || reasons.level}</p>
-      <p class="big-score" aria-label="Final score">${fmt(G.score)}</p>
-      <p class="meta"><span>${info.isHi ? "<b>NEW HIGH SCORE!</b>" : "High score <b>" + fmt(store.hi) + "</b>"}</span><span>Reached level <b>${G.level}</b></span></p>
+    const buttons = `
       <div class="row">
         <button class="btn primary" type="button" data-act="again">PLAY AGAIN</button>
         <button class="btn" type="button" data-act="menu">MENU</button>
       </div>`;
+    if (info.savedAs) {
+      html = `
+        <h2 class="sheet-title">${info.rank === 1 ? "NEW HIGH SCORE!" : "HALL OF FAME!"}</h2>
+        <p class="rank-call">${fmt(run.s)} · ${esc(info.savedAs)}${info.rank ? " · #" + info.rank : ""}</p>
+        ${boardHtml(info.highlight)}${buttons}`;
+    } else {
+      const rank = info.ask ? rankFor(run.s) : 0;
+      html = `
+        <h2 class="sheet-title">THAT'S A WRAP!</h2>
+        <p class="sheet-lede">${reasons[G.overReason] || reasons.level}</p>
+        <p class="big-score" aria-label="Final score">${fmt(run.s)}</p>
+        ${info.ask ? `<p class="rank-call">${rank === 1 ? "A NEW HIGH SCORE!" : "#" + rank + " IN THE HALL OF FAME!"}</p>${pilotPicker()}`
+          : boardHtml("") + buttons}`;
+    }
+  } else if (kind === "claim") {
+    const run = info.run;
+    html = `
+      <h2 class="sheet-title">${run.legacy ? "WHO SET THE HIGH SCORE?" : "UNFINISHED SHOW"}</h2>
+      <p class="sheet-lede">${run.legacy ? "High scores now go in a Hall of Fame with names. Claim this one." : "The game closed mid-show, but the score still counts."}</p>
+      <p class="big-score">${fmt(run.s)}</p>
+      ${pilotPicker()}`;
   }
   sheet.innerHTML = html;
-  sheet.setAttribute("aria-label", kind === "title" ? "Bale Out menu" : kind === "paused" ? "Paused" : "Game over");
+  sheet.setAttribute("aria-label", { title: "Bale Out menu", paused: "Paused", claim: "Claim a score" }[kind] || "Game over");
   sheet.hidden = false;
   sheet.dataset.kind = kind;
+  sheet.dataset.highlight = info.highlight || "";
+  sheet.scrollTop = 0;
   positionSheet();
-  if (lastInput === "key") {
+  const field = sheet.querySelector("#pilotName");
+  if (field && app.classList.contains("mouse")) field.focus({ preventScroll: true });
+  else if (lastInput === "key") {
     const b = sheet.querySelector("button");
     if (b) b.focus({ preventScroll: true });
   }
+}
+// Keep the board on screen current when scores arrive from the other device.
+function onBoardChanged() {
+  updateStatus();
+  if (sheet.hidden || nameCtx) return;
+  const kind = sheet.dataset.kind;
+  if (kind !== "title" && kind !== "over") return;
+  const old = sheet.querySelector(".hof");
+  const fresh = boardHtml(sheet.dataset.highlight);
+  if (old) { if (fresh) old.outerHTML = fresh; else old.remove(); }
+  else if (fresh && kind === "title") showSheet("title", { highlight: sheet.dataset.highlight });
 }
 function hideSheet() { sheet.hidden = true; app.classList.remove("menu-open"); }
 
@@ -1156,8 +1428,43 @@ sheet.addEventListener("click", e => {
   if (act === "show" || act === "free") startGame(act);
   else if (act === "again") startGame("show");
   else if (act === "resume") resume();
-  else if (act === "menu") startAttract();
+  else if (act === "menu") { if (G.phase === "paused") quitShow(); else startAttract(); }
+  else if (act === "pick") commitName(cleanName(b.dataset.name));
+  else if (act === "skip") skipName();
 });
+sheet.addEventListener("submit", e => {
+  e.preventDefault();
+  const field = sheet.querySelector("#pilotName");
+  const name = cleanName(field && field.value);
+  if (!name) { if (field) field.focus(); return; }
+  commitName(name);
+});
+
+let nameCtx = null;   // the score waiting for a name: { run, from: "over" | "claim" }
+function askForName(run, from) {
+  nameCtx = { run, from };
+  showSheet(from === "claim" ? "claim" : "over", { run, ask: true });
+}
+function commitName(name) {
+  if (!nameCtx || !name) return;
+  const ctx = nameCtx;
+  nameCtx = null;
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  setTimeout(() => window.scrollTo(0, 0), 60);
+  const entry = addToBoard(name, ctx.run);
+  if (ctx.from === "claim") clearPending();
+  const idx = boardEntries().findIndex(e => e.id === entry.id);
+  if (ctx.from === "claim") showSheet("title", { highlight: entry.id });
+  else showSheet("over", { run: ctx.run, savedAs: name, highlight: entry.id, rank: idx >= 0 ? idx + 1 : 0 });
+  announce(idx >= 0 ? name + " is number " + (idx + 1) + " in the Hall of Fame." : "Saved.");
+}
+function skipName() {
+  if (!nameCtx) return;
+  const ctx = nameCtx;
+  nameCtx = null;
+  if (ctx.from === "claim") { clearPending(); showSheet("title"); }
+  else showSheet("over", { run: ctx.run });
+}
 
 /* ------------------------------------------------------------------ phases */
 let wake = null;
@@ -1178,8 +1485,12 @@ function startAttract() {
   G.nextManT = 24;
   app.classList.remove("playing");
   Sound.stopRotor(); releaseWake();
+  pauseBtn.textContent = "PAUSE";
   updateStatus();
-  showSheet("title");
+  nameCtx = null;
+  const p = store.pending;
+  if (p && qualifies(p.s)) askForName(p, "claim");
+  else { clearPending(); showSheet("title"); }
 }
 
 function startGame(mode) {
@@ -1187,7 +1498,8 @@ function startGame(mode) {
   G.mode = mode; G.phase = "play";
   G.level = 1; G.pace = 1; G.grav = 4;
   G.score = 0; G.slots = []; G.goodJumps = 0; G.hits = 0; G.streak = 0;
-  G.overReason = "";
+  G.overReason = ""; G.recordSet = false;
+  nameCtx = null;
   G.nextManT = 14;
   input.mouse.active = false; input.touch = null; input.pad = null;
   hideSheet();
@@ -1215,15 +1527,30 @@ function resume() {
   last = performance.now(); acc = 0;
 }
 
+function finishShow(run) {
+  clearPending();
+  if (qualifies(run.s)) askForName(run, "over");
+  else showSheet("over", { run });
+}
 function showGameOver() {
   G.overPending = false;
   G.phase = "over";
-  const isHi = G.score > store.hi;
-  if (isHi) { store.hi = G.score; save(); }
   app.classList.remove("playing");
   Sound.stopRotor(); Sound.stopWhistle(); Sound.sad(); releaseWake();
-  showSheet("over", { isHi });
+  finishShow({ s: G.score, l: G.level, d: today() });
   announce("That's a wrap. Final score " + fmt(G.score) + ".");
+}
+// MENU from the pause screen ends the show; a score good enough for the board still gets saved.
+function quitShow() {
+  if (G.mode === "show" && G.score > 0 && qualifies(G.score)) {
+    G.phase = "over"; G.overReason = "quit"; G.overPending = false;
+    pauseBtn.textContent = "PAUSE";
+    app.classList.remove("playing");
+    finishShow({ s: G.score, l: G.level, d: today() });
+    return;
+  }
+  clearPending();
+  startAttract();
 }
 
 function toggleSound() {
@@ -1323,6 +1650,8 @@ soundBtn.addEventListener("click", toggleSound);
 
 const KEYMAP = { ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right", ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down" };
 window.addEventListener("keydown", e => {
+  const tg = e.target;
+  if (tg && (tg.tagName === "INPUT" || tg.tagName === "TEXTAREA" || tg.isContentEditable)) return;
   lastInput = "key";
   Sound.unlock();
   const k = KEYMAP[e.code];
@@ -1341,8 +1670,13 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     if (G.phase === "play") pause();
     if (Sound.ctx) Sound.ctx.suspend().catch(() => {});
-  } else if (Sound.ctx && G.phase === "play") Sound.unlock();
+  } else {
+    if (Sound.ctx && G.phase === "play") Sound.unlock();
+    syncNow();
+  }
 });
+window.addEventListener("online", () => syncNow());
+setInterval(() => { if (!document.hidden && G.phase !== "play") syncNow(); }, 60000);
 window.addEventListener("blur", () => { if (G.phase === "play") pause(); input.keys.clear(); });
 window.addEventListener("resize", layout);
 if (window.visualViewport) window.visualViewport.addEventListener("resize", layout);
@@ -1374,14 +1708,15 @@ function boot(data) {
   layout();
   startAttract();
   layout();
+  syncNow();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(positionSheet).catch(() => {});
   requestAnimationFrame(frame);
-  window.baleOut = { G, tick, release, drop, startGame, layout, consts: { GROUND, HAY_TOP, HANG_X, HANG_Y, CH, WAG_W } };
+  window.baleOut = { G, tick, release, drop, startGame, layout, store, syncNow, consts: { GROUND, HAY_TOP, HANG_X, HANG_Y, CH, WAG_W } };
 }
 
 const hot = window.claude && window.claude.hot;
 if (hot && typeof hot.snapshot === "function") {
-  try { hot.snapshot(() => ({ hi: store.hi, freeBest: store.freeBest, sound: store.sound })); } catch (e) { /* ignore */ }
+  try { hot.snapshot(() => ({ freeBest: store.freeBest, sound: store.sound, board: store.board, names: store.names })); } catch (e) { /* ignore */ }
 }
 const start = data => boot(data || {});
 if (hot && typeof hot.ready === "function") hot.ready(start);
@@ -1391,7 +1726,25 @@ else start((hot && hot.data) || {});
 
 <script>
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => { navigator.serviceWorker.register("sw.js").catch(() => {}); });
+  // When a new version takes over, reload once the player is back on the title screen.
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    const tryReload = () => {
+      const g = window.baleOut && window.baleOut.G;
+      const sheet = document.getElementById("sheet");
+      if (!g || (g.phase === "title" && sheet && sheet.dataset.kind === "title")) location.reload();
+      else setTimeout(tryReload, 2000);
+    };
+    tryReload();
+  });
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").then((reg) => {
+      document.addEventListener("visibilitychange", () => { if (!document.hidden) reg.update().catch(() => {}); });
+    }).catch(() => {});
+  });
 }
 </script>
 </body>

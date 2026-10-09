@@ -200,14 +200,14 @@ body {
 .hof-sync { font: 400 10px/1 var(--font-px); letter-spacing: 0.08em; opacity: 0.7; }
 .hof-list { margin: 0; padding: 0; list-style: none; border-top: 2px solid var(--pix); }
 .hof-row {
-  display: grid; grid-template-columns: 2.2ch minmax(0, 1fr) auto 5.5ch; gap: 10px; align-items: baseline;
+  display: grid; grid-template-columns: 1.5em minmax(0, 1fr) auto 2.8em; gap: 8px; align-items: baseline;
   padding: 6px 6px 5px; border-bottom: 1px dashed var(--pix);
   font: 400 14px/1.15 var(--font-px); font-variant-numeric: tabular-nums;
 }
 .hof-row:first-child { font-weight: 700; }
-.hof-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hof-name { min-width: 0; overflow-wrap: anywhere; }
 .hof-score { text-align: right; }
-.hof-lv { text-align: right; font-size: 11px; }
+.hof-lv { text-align: right; font-size: 10px; white-space: nowrap; }
 .hof-row.is-new { background: var(--pix); color: var(--phos); }
 .rank-call { margin: 0; font: 700 15px/1.2 var(--font-px); letter-spacing: 0.04em; }
 .pilot { display: flex; flex-direction: column; gap: 10px; }
@@ -303,7 +303,7 @@ const fmt = n => Math.floor(n).toLocaleString("en-US");
 // fetched from the online scoreboard; outbox = new entries still waiting to upload; names = recent pilots
 // (newest first); pending = the score of a show in progress, saved after every landing so a closed app
 // loses nothing.
-const BOARD_SIZE = 5, MAX_NAMES = 6;
+const BOARD_SIZE = 5, MAX_NAMES = 6, NAME_MAX = 12;
 // Firebase Realtime Database address for a scoreboard shared across devices. Empty = this device only.
 const SYNC_URL = "";
 const store = { v: 2, hi: 0, freeBest: 0, sound: true, board: [], remote: [], outbox: [], names: [], pending: null };
@@ -312,7 +312,7 @@ const validEntry = e => !!e && typeof e.n === "string" && e.n.length > 0 && Numb
 const entryKey = e => e.id || e.n + "|" + e.s + "|" + (e.d || "");
 const esc = v => String(v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 function cleanName(v) {
-  return String(v || "").toUpperCase().replace(/[^\p{L}\p{N} !.'-]/gu, "").replace(/\s+/g, " ").trim().slice(0, 10);
+  return String(v || "").toUpperCase().replace(/[^\p{L}\p{N} !.'-]/gu, "").replace(/\s+/g, " ").trim().slice(0, NAME_MAX);
 }
 function cleanEntry(e) {
   if (!e || typeof e !== "object") return null;
@@ -1324,7 +1324,7 @@ function pilotPicker() {
       <p class="pilot-q">WHO WAS FLYING?</p>
       ${chips ? `<div class="chips">${chips}</div>` : ""}
       <form class="newname" autocomplete="off">
-        <input id="pilotName" name="pilot" type="text" maxlength="10" placeholder="${chips ? "OR A NEW NAME" : "YOUR NAME"}" aria-label="Pilot name" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="done">
+        <input id="pilotName" name="pilot" type="text" maxlength="${NAME_MAX}" placeholder="${chips ? "OR A NEW NAME" : "YOUR NAME"}" aria-label="Pilot name" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="done">
         <button class="btn primary" type="submit">SAVE</button>
       </form>
       <button class="linkbtn" type="button" data-act="skip">Don't save this score</button>

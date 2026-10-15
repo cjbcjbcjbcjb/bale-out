@@ -306,7 +306,7 @@ const fmt = n => Math.floor(n).toLocaleString("en-US");
 // loses nothing.
 const BOARD_SIZE = 5, MAX_NAMES = 6, NAME_MAX = 12;
 // Firebase Realtime Database address for a scoreboard shared across devices. Empty = this device only.
-const SYNC_URL = "";
+const SYNC_URL = "https://bale-out-default-rtdb.europe-west1.firebasedatabase.app";
 const store = { v: 2, hi: 0, freeBest: 0, sound: true, board: [], remote: [], outbox: [], names: [], pending: null };
 const KEY = "bale-out-v1";
 const validEntry = e => !!e && typeof e.n === "string" && e.n.length > 0 && Number.isFinite(e.s) && e.s > 0;

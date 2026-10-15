@@ -18,7 +18,8 @@ these sessions cannot change Pages settings through the API).
   score of an unfinished show, saved after every landing and offered for a name on the next launch),
   `seeded` (this device's board has been queued for upload once).
 - `SYNC_URL` near the top of the game script is the Firebase Realtime Database address for the shared
-  Hall of Fame. Empty means scores stay on each device. The database rules are in `firebase-rules.json`
+  Hall of Fame: https://bale-out-default-rtdb.europe-west1.firebasedatabase.app (Firebase project
+  `bale-out` in Chris's Google account). Empty means scores stay on each device. The database rules are in `firebase-rules.json`
   (anyone can read and append scores; nothing can be changed or deleted). Uploads are plain POSTs confirmed
   by reading the entry back by `id`; reads fall back to JSONP, so it works without CORS.
 - These cloud sessions can't reach Firebase or github.io from the shell; verify the live site with WebFetch.

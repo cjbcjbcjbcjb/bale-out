@@ -160,7 +160,6 @@ body {
 .sheet-title { margin: 0; font: 700 clamp(26px, 6.4vw, 38px)/1 var(--font-px); letter-spacing: 0.02em; text-wrap: balance; }
 .sheet-lede { margin: 0; font: 15px/1.45 var(--font-ui); max-width: 52ch; text-wrap: pretty; }
 .modes { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.mode.primary { grid-column: 1 / -1; }
 .mode {
   display: flex; flex-direction: column; gap: 7px; text-align: left;
   padding: 14px 14px 13px; border: 2px solid var(--pix); border-radius: 10px;
@@ -168,9 +167,13 @@ body {
   cursor: pointer; font: inherit; touch-action: manipulation;
 }
 .mode.primary { background: var(--pix); color: var(--phos); }
-.mode-name { font: 700 17px/1 var(--font-px); letter-spacing: 0.03em; }
+/* Flash Forward is the one thing on the menu in color */
+.mode.flash {
+  background: linear-gradient(115deg, #ffb3c1 0%, #ffd6a5 22%, #fdffb6 42%, #caffbf 60%, #9bf6ff 78%, #c8b6ff 100%);
+  background-size: 220% 100%; background-position: 0% 50%;
+}
+.mode-name { font: 700 14px/1.1 var(--font-px); letter-spacing: 0.03em; }
 .mode-desc { font: 13.5px/1.4 var(--font-ui); }
-.mode:not(.primary) .mode-name { font-size: 14px; }
 .row { display: flex; gap: 10px; flex-wrap: wrap; }
 .btn {
   flex: 1 1 140px; font: 700 15px/1 var(--font-px); letter-spacing: 0.04em;
@@ -190,8 +193,7 @@ body {
 #sheet.compact .sheet-title { font-size: 24px; }
 #sheet.compact .sheet-lede { font-size: 13.5px; }
 #sheet.compact .mode { padding: 10px 12px; gap: 5px; }
-#sheet.compact .mode-name { font-size: 15px; }
-#sheet.compact .mode:not(.primary) .mode-name { font-size: 13px; }
+#sheet.compact .mode-name { font-size: 13px; }
 #sheet.compact .mode-desc, #sheet.compact .note, #sheet.compact .meta { font-size: 12.5px; }
 #sheet.compact .credit { font-size: 11.5px; padding-top: 8px; }
 #sheet.compact .big-score { font-size: 28px; }
@@ -251,6 +253,8 @@ body {
 #sheet.compact .hof-row { padding: 4px 6px 3px; font-size: 13px; }
 #sheet.compact .chip { padding: 10px 12px 9px; font-size: 14px; }
 @media (prefers-reduced-motion: no-preference) {
+  .mode.flash { animation: flash-sheen 7s ease-in-out infinite alternate; }
+  @keyframes flash-sheen { to { background-position: 100% 50%; } }
   .hof-row.is-new { animation: hof-blink 0.5s steps(1) 6; }
   @keyframes hof-blink { 50% { background: var(--phos); color: var(--pix); } }
 }
@@ -414,7 +418,8 @@ function addToBoard(name, run) {
   syncNow();
   return entry;
 }
-const scored = () => G.mode === "show" || G.mode === "drunk";
+// Stunt Show, Flash Forward (the same show in color) and Drunk Mode keep score; Free Flight and the demo do not.
+const scored = () => G.mode === "show" || G.mode === "flash" || G.mode === "drunk";
 function notePending() {
   if (!scored() || !(G.score > 0)) return;
   store.pending = { s: G.score, l: G.level, d: today(), k: boardOf(G.mode) };
@@ -798,6 +803,17 @@ const Sound = {
     const t0 = this.ctx.currentTime + 0.75;
     [1, 1.26, 1.5, 2, 2.52, 3].forEach((r, i) => this.tone(392 * r, t0 + i * 0.07, 0.09, { vol: 0.05 }));
   },
+  charge() {   // a flashgun winding up
+    if (!this.ready()) return;
+    this.tone(620, this.ctx.currentTime, 0.44, { type: "sine", vol: 0.03, f2: 3400 });
+  },
+  flash() {    // the pop, then everything bursts into color
+    if (!this.ready()) return;
+    const t0 = this.ctx.currentTime;
+    this.hiss(t0, 0.32, 0.32, 4200, "highpass", 0.6);
+    this.tone(140, t0, 0.28, { type: "sine", vol: 0.24, f2: 46 });
+    [523.25, 659.25, 783.99, 1046.5, 1318.51].forEach((f, i) => this.tone(f, t0 + 0.1 + i * 0.065, 0.55 - i * 0.05, { type: "triangle", vol: 0.055 }));
+  },
   sad() {
     if (!this.ready()) return;
     const t0 = this.ctx.currentTime + 0.05;
@@ -823,6 +839,7 @@ const G = {
   driverDaze: 0, horseRear: 0,
   overPending: false, overT: 0, overReason: "",
   banner: null, stick: [0, 0],
+  flashT: 0, hdOn: false, flashFx: 0,   // Flash Forward: ticks so far, color on, white flash left
   ai: { alt: 90, restX: 200, restY: 80 },
 };
 
@@ -1118,12 +1135,18 @@ function tick() {
     p.t++; p.x += p.vx; p.y += p.vy;
     if (p.k === "straw") p.vy += 0.22;
     else if (p.k === "hat") { p.vy += 0.25; if (p.y >= GROUND - 3) { p.y = GROUND - 3; p.vx = 0; p.vy = 0; } }
+    else if (p.k === "confetti") { p.vy = Math.min(p.vy + 0.05, 1.5); p.vx = p.vx * 0.985 + Math.sin(p.t * 0.12 + p.r) * 0.03; }
     if (p.t > p.life) G.parts.splice(i, 1);
   }
   for (let i = G.pops.length - 1; i >= 0; i--) if (++G.pops[i].t > G.pops[i].life) G.pops.splice(i, 1);
   if (G.driverDaze > 0) G.driverDaze--;
   if (G.horseRear > 0) G.horseRear--;
   if (G.banner && ++G.banner.t > G.banner.life) G.banner = null;
+  if (G.flashFx > 0) G.flashFx = Math.max(0, G.flashFx - FLASH_FADE);
+  if (G.mode === "flash" && !G.hdOn) {
+    if (++G.flashT >= FLASH_AT) flashForward();
+    else if (G.flashT === FLASH_AT - 16) Sound.charge();
+  }
   if (G.nextManT > 0 && --G.nextManT === 0) nextMan();
   if (G.overPending && --G.overT <= 0) showGameOver();
 }
@@ -1266,6 +1289,7 @@ function drawStickGuide(g) {
 }
 
 function render(alpha) {
+  if (G.mode === "flash" && G.hdOn) { renderHD(alpha); return; }
   const g = bctx;
   g.drawImage(bg, 0, 0);
   const L = (a, b) => (Math.abs(b - a) > 60 ? b : a + (b - a) * alpha);
@@ -1303,6 +1327,528 @@ function render(alpha) {
   }
   sctx.imageSmoothingEnabled = false;
   sctx.drawImage(buf, 0, 0, screen.width, screen.height);
+  // Flash Forward: the old screen glows white just before the flash.
+  const glow = G.mode === "flash" && !calm() ? (G.flashT + alpha - (FLASH_AT - 8)) / 8 : 0;
+  if (glow > 0) { sctx.fillStyle = `rgba(255,255,255,${Math.min(1, glow * glow)})`; sctx.fillRect(0, 0, screen.width, screen.height); }
+}
+
+/* ------------------------------------------------------------------ Flash Forward: the full-color renderer */
+// Same world, timing and hit boxes as the 1-bit game (one unit = one old pixel), drawn as shaded vector art
+// straight onto the screen canvas at device resolution. Scenery, clouds and the hay cart are cached per screen size.
+const FLASH_AT = 64;        // ticks of 1986 before the screen flashes into color
+const FLASH_FADE = 1 / 26;  // how fast the white flash clears, per tick
+const CLOUD_SHAPES = [      // the circles the 1-bit clouds (and their slow-fall masks) were drawn from
+  { w: 96, h: 44, c: [[20, 30, 13], [38, 20, 17], [60, 22, 16], [78, 30, 12], [48, 32, 12], [30, 34, 9], [66, 34, 9]] },
+  { w: 120, h: 50, c: [[18, 36, 12], [36, 26, 16], [58, 18, 18], [80, 24, 16], [100, 34, 12], [60, 36, 13], [40, 38, 10], [84, 38, 9]] },
+  { w: 74, h: 36, c: [[16, 24, 11], [34, 15, 13], [52, 19, 12], [62, 26, 9], [36, 27, 9]] },
+];
+const DOME = { cx: 20.8, cy: 10.6, rx: 20.5, ry: 10.2 };   // the hay pile, relative to (cart x, HAY_TOP)
+const HDC = {
+  body: "#e0393e", bodyHi: "#ff7a7a", bodyDark: "#931a1f", metal: "#30353d",
+  glassHi: "#e6f7ff", glass: "#7ec3ee", glassDark: "#2f6f9f",
+  suit: "#ff7a1a", suitDark: "#c45400", visor: "#182433", boot: "#1d1d1f", glove: "#ffffff",
+  hayDark: "#cf9a1f", wood: "#a4683a", woodDark: "#6b4022", woodLight: "#cf9460",
+  coat: "#93522a", coatDark: "#5c2f13", mane: "#2a1a10", skin: "#efbe8c", shirt: "#c63b2f", jeans: "#2d4f8e", hat: "#7a4a24",
+  gold: "#ffd24a", ink: "rgba(10,18,32,0.88)",
+};
+const RAINBOW = ["#ff4d6d", "#ff9f1c", "#ffd23f", "#3ddc97", "#4cc9f0", "#9b5de5"];
+const HD_FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
+const HD_MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+const TAU = Math.PI * 2;
+const hd = { key: "", kx: 1, ky: 1, bg: null, clouds: [], cart: null };
+
+function hdCanvas(w, h) { const c = document.createElement("canvas"); c.width = Math.max(1, Math.ceil(w)); c.height = Math.max(1, Math.ceil(h)); return c; }
+function rrect(g, x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+}
+function lgrad(g, x0, y0, x1, y1, stops) { const gr = g.createLinearGradient(x0, y0, x1, y1); for (const [o, c] of stops) gr.addColorStop(o, c); return gr; }
+function rainbow(g, x0, x1) { return lgrad(g, x0, 0, x1, 0, RAINBOW.map((c, i) => [i / (RAINBOW.length - 1), c])); }
+function seq(seed) { let s = seed >>> 0; return () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296); }
+function hdLimb(g, x0, y0, x1, y1, w, col) { g.strokeStyle = col; g.lineWidth = w; g.lineCap = "round"; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); }
+// Draw a cached bitmap (made at device scale) at a world position.
+function hdBlit(g, img, x, y) {
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.drawImage(img.c, (x - img.pad) * hd.kx, (y - img.pad) * hd.ky);
+  g.setTransform(hd.kx, 0, 0, hd.ky, 0, 0);
+}
+
+/* ---- scenery */
+function hdRidge(g, f, top, bottom) {
+  g.beginPath(); g.moveTo(0, GROUND);
+  for (let x = 0; x <= W + 2; x += 2) g.lineTo(x, f(x));
+  g.lineTo(W + 2, GROUND); g.closePath();
+  g.fillStyle = lgrad(g, 0, 185, 0, GROUND, [[0, top], [1, bottom]]); g.fill();
+}
+function hdTree(g, x, s) {
+  const y = hillTop(Math.round(x)) + 3;
+  g.fillStyle = "#5e3c21"; g.fillRect(x - 0.9 * s, y - 7.5 * s, 1.8 * s, 7.5 * s);
+  for (const [dx, dy, r] of [[0, -12, 5.6], [-4, -9, 4.3], [4, -9.2, 4.4], [0.6, -15.4, 3.8]]) {
+    const cx = x + dx * s, cy = y + dy * s, rr = r * s;
+    const gr = g.createRadialGradient(cx - rr * 0.4, cy - rr * 0.45, rr * 0.15, cx, cy, rr);
+    gr.addColorStop(0, "#8ad35f"); gr.addColorStop(1, "#2e7330");
+    g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, rr, 0, TAU); g.fill();
+  }
+}
+function hdBarn(g, x) {
+  const b = hillTop(Math.round(x)) + 3, w = 17, h = 10, l = x - w / 2;
+  g.fillStyle = lgrad(g, l, 0, l + w, 0, [[0, "#cf3a30"], [1, "#992820"]]); g.fillRect(l, b - h, w, h);
+  g.fillStyle = "#585d66";
+  g.beginPath(); g.moveTo(l - 1.6, b - h + 0.4); g.lineTo(l + 2.2, b - h - 4.2); g.lineTo(x, b - h - 6.8);
+  g.lineTo(l + w - 2.2, b - h - 4.2); g.lineTo(l + w + 1.6, b - h + 0.4); g.closePath(); g.fill();
+  g.fillStyle = "#86221c"; g.fillRect(x - 3.2, b - 7.2, 6.4, 7.2);
+  g.strokeStyle = "#f5efe4"; g.lineWidth = 0.7; g.strokeRect(x - 3.2, b - 7.2, 6.4, 7.2);
+  g.beginPath(); g.moveTo(x - 3.2, b - 7.2); g.lineTo(x + 3.2, b); g.moveTo(x + 3.2, b - 7.2); g.lineTo(x - 3.2, b); g.stroke();
+  g.fillStyle = "#f5efe4"; g.fillRect(x - 1.4, b - h - 2.8, 2.8, 2.3);
+}
+function hdSilo(g, x) {
+  const b = hillTop(Math.round(x)) + 3, w = 5.4, h = 16;
+  g.fillStyle = lgrad(g, x - w / 2, 0, x + w / 2, 0, [[0, "#8d969e"], [0.45, "#eef2f5"], [1, "#737c85"]]);
+  g.fillRect(x - w / 2, b - h, w, h);
+  g.beginPath(); g.arc(x, b - h, w / 2, Math.PI, 0); g.fill();
+  g.strokeStyle = "rgba(55,65,75,0.35)"; g.lineWidth = 0.35;
+  for (let y = b - h + 3; y < b; y += 3) { g.beginPath(); g.moveTo(x - w / 2, y); g.lineTo(x + w / 2, y); g.stroke(); }
+}
+function hdCloud(sh) {
+  const pad = 4, kx = hd.kx, ky = hd.ky;
+  const c = hdCanvas((sh.w + pad * 2) * kx, (sh.h + pad * 2) * ky), g = c.getContext("2d");
+  g.setTransform(kx, 0, 0, ky, pad * kx, pad * ky);
+  const union = () => { g.beginPath(); for (const [x, y, r] of sh.c) { g.moveTo(x + r, y); g.arc(x, y, r, 0, TAU); } };
+  g.save(); g.translate(0, 2.2); union(); g.fillStyle = "rgba(60,100,155,0.16)"; g.fill(); g.restore();
+  g.save(); union(); g.clip();
+  g.fillStyle = "#e9f1fa"; g.fillRect(-pad, -pad, sh.w + pad * 2, sh.h + pad * 2);
+  for (const [x, y, r] of sh.c) {
+    const gr = g.createRadialGradient(x - r * 0.3, y - r * 0.5, 0, x - r * 0.3, y - r * 0.5, r * 1.15);
+    gr.addColorStop(0, "rgba(255,255,255,1)"); gr.addColorStop(0.6, "rgba(255,255,255,0.55)"); gr.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
+  }
+  g.fillStyle = lgrad(g, 0, sh.h * 0.45, 0, sh.h, [[0, "rgba(150,175,210,0)"], [1, "rgba(125,155,198,0.6)"]]);
+  g.fillRect(-pad, -pad, sh.w + pad * 2, sh.h + pad * 2);
+  g.restore();
+  return { c, pad };
+}
+// The hay cart: the pile, its straws, the bed and the driver's seat. Drawn once, then blitted every frame.
+function hdCart() {
+  const pad = 3, kx = hd.kx, ky = hd.ky;
+  const c = hdCanvas((47 + pad * 2) * kx, (16 + pad * 2) * ky), g = c.getContext("2d");
+  g.setTransform(kx, 0, 0, ky, pad * kx, pad * ky);
+  g.beginPath(); g.moveTo(DOME.cx - DOME.rx, DOME.cy); g.ellipse(DOME.cx, DOME.cy, DOME.rx, DOME.ry, 0, Math.PI, TAU); g.closePath();
+  g.fillStyle = lgrad(g, 0, 0, 0, 10.5, [[0, "#f8dc72"], [1, HDC.hayDark]]); g.fill();
+  g.save(); g.clip();
+  const rnd = seq(11), cols = ["#f7dc74", "#e7b93a", "#d49a22", "#fbe9a6", "#c98f1c"];
+  g.lineWidth = 0.42; g.lineCap = "round";
+  for (let i = 0; i < 110; i++) {
+    const x = 1 + rnd() * 40, y = 0.5 + rnd() * 9.5, a = (rnd() - 0.5) * 1.6, l = 1.4 + rnd() * 2.2;
+    g.strokeStyle = cols[(rnd() * cols.length) | 0];
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
+  }
+  g.fillStyle = lgrad(g, 0, 6, 0, 10.6, [[0, "rgba(120,80,10,0)"], [1, "rgba(120,80,10,0.3)"]]); g.fillRect(0, 0, 42, 11);
+  g.restore();
+  g.strokeStyle = "#e8c04a"; g.lineWidth = 0.4;
+  for (const [x, y, dx, dy] of [[9, 1.6, -0.8, -1.8], [15, 0.6, 0.6, -1.9], [22, 0.3, -0.4, -2], [28, 0.8, 0.9, -1.6], [34, 2.2, 0.5, -1.7]]) {
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + dx, y + dy); g.stroke();
+  }
+  g.fillStyle = lgrad(g, 0, 9, 0, 15.6, [[0, HDC.woodLight], [0.35, HDC.wood], [1, HDC.woodDark]]);
+  rrect(g, 0, 9, 42, 6.6, 0.6); g.fill();
+  g.strokeStyle = "rgba(60,32,14,0.6)"; g.lineWidth = 0.4;
+  g.beginPath(); g.moveTo(0.6, 12.3); g.lineTo(41.4, 12.3);
+  for (const x of [13.5, 28.5]) { g.moveTo(x, 9.4); g.lineTo(x, 15.3); }
+  g.stroke();
+  g.fillStyle = "#3b3b3e"; for (const x of [2, 13.5, 28.5, 40]) { g.beginPath(); g.arc(x, 10.6, 0.35, 0, TAU); g.arc(x, 14, 0.35, 0, TAU); g.fill(); }
+  g.fillStyle = "rgba(255,230,190,0.35)"; g.fillRect(0.6, 9.3, 40.8, 0.6);
+  g.fillStyle = HDC.woodDark; g.fillRect(42, 7, 1.2, 8.6);
+  g.fillStyle = HDC.wood; g.fillRect(42, 10, 4, 1.4); g.fillRect(44.8, 10, 1.2, 5.6);
+  return { c, pad };
+}
+function hdBuild() {
+  const key = screen.width + "x" + screen.height + ":" + W;
+  if (hd.key === key) return;
+  hd.key = key;
+  const kx = hd.kx = screen.width / W, ky = hd.ky = screen.height / H;
+  const bgc = hdCanvas(screen.width, screen.height), g = bgc.getContext("2d");
+  g.setTransform(kx, 0, 0, ky, 0, 0);
+  g.fillStyle = lgrad(g, 0, 0, 0, GROUND, [[0, "#2a62c6"], [0.55, "#6fb1ec"], [1, "#d9eefb"]]);
+  g.fillRect(0, 0, W, PANEL_Y);
+  const sx = W * 0.84, sy = 38;
+  const sun = g.createRadialGradient(sx, sy, 0, sx, sy, 80);
+  sun.addColorStop(0, "rgba(255,251,228,1)"); sun.addColorStop(0.1, "rgba(255,245,204,0.95)");
+  sun.addColorStop(0.28, "rgba(255,236,175,0.32)"); sun.addColorStop(1, "rgba(255,236,175,0)");
+  g.fillStyle = sun; g.fillRect(sx - 80, sy - 80, 160, 160);
+  hdRidge(g, x => 206 + 15 * Math.sin(x / 41 + 0.7) + 9 * Math.sin(x / 17 + 2.1) + 3.5 * Math.sin(x / 7.3), "#bccfe5", "#94b1d0");
+  hdRidge(g, x => 226 + 11 * Math.sin(x / 33 + 2.4) + 6 * Math.sin(x / 13 + 0.4), "#8fadcc", "#6b8db3");
+  hdRidge(g, x => hillTop(Math.round(x)) - 0.5, "#8ccd5c", "#3a8833");
+  const rnd = seq(7);
+  g.lineWidth = 0.45; g.lineCap = "round";
+  for (let i = 0; i < W * 1.4; i++) {
+    const x = rnd() * W, top = hillTop(Math.round(x)) + 4, y = top + rnd() * (GROUND - 10 - top);
+    g.strokeStyle = rnd() < 0.5 ? "rgba(30,92,34,0.35)" : "rgba(160,215,115,0.35)";
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + (rnd() - 0.5) * 0.8, y - 1.2 - rnd() * 1.2); g.stroke();
+  }
+  hdTree(g, W * 0.13, 1); hdTree(g, W * 0.2, 0.85); hdSilo(g, W * 0.715); hdBarn(g, W * 0.76); hdTree(g, W * 0.9, 1.1);
+  g.strokeStyle = "#8a6847"; g.lineCap = "butt"; g.lineWidth = 0.55;
+  for (const y of [GROUND - 15, GROUND - 12]) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+  g.lineWidth = 0.9;
+  for (let x = 4; x < W; x += 14) { g.beginPath(); g.moveTo(x, GROUND - 17); g.lineTo(x, GROUND - 9); g.stroke(); }
+  g.fillStyle = lgrad(g, 0, GROUND - 9, 0, PANEL_Y, [[0, "#dcb97e"], [1, "#a77a45"]]);
+  g.fillRect(0, GROUND - 9, W, PANEL_Y - GROUND + 9);
+  g.fillStyle = "#3a8833"; g.fillRect(0, GROUND - 10, W, 1.2);
+  g.strokeStyle = "rgba(120,84,44,0.45)"; g.lineWidth = 0.6;
+  for (const y of [GROUND - 1.5, GROUND + 3.5]) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+  for (let i = 0; i < W * 0.5; i++) {
+    g.fillStyle = rnd() < 0.5 ? "rgba(110,78,40,0.4)" : "rgba(255,240,210,0.45)";
+    g.fillRect(rnd() * W, GROUND - 8 + rnd() * 14, 0.6, 0.45);
+  }
+  g.fillStyle = lgrad(g, 0, PANEL_Y, 0, H, [[0, "#13213a"], [1, "#0a1220"]]); g.fillRect(0, PANEL_Y, W, PANEL_H);
+  g.fillStyle = "rgba(120,170,230,0.35)"; g.fillRect(0, PANEL_Y, W, 0.7);
+  hd.bg = bgc;
+  hd.clouds = CLOUD_SHAPES.map(hdCloud);
+  hd.cart = hdCart();
+}
+
+/* ---- the copter */
+function hdCopter(g, x, y, t) {
+  g.save(); g.translate(x, y);
+  g.fillStyle = "rgba(40,48,60,0.16)";
+  g.beginPath(); g.ellipse(41.5, 1.3, 30, 1.6, 0, 0, TAU); g.fill();
+  const ph = t * 1.7;
+  g.lineCap = "round";
+  g.strokeStyle = "rgba(22,24,30,0.3)"; g.lineWidth = 0.6;
+  g.beginPath(); g.moveTo(41.5 - Math.sin(ph) * 29.5, 1.3); g.lineTo(41.5 + Math.sin(ph) * 29.5, 1.3); g.stroke();
+  g.strokeStyle = "rgba(22,24,30,0.82)"; g.lineWidth = 0.75;
+  g.beginPath(); g.moveTo(41.5 - Math.cos(ph) * 29.5, 1.3 - Math.sin(ph) * 0.9); g.lineTo(41.5 + Math.cos(ph) * 29.5, 1.3 + Math.sin(ph) * 0.9); g.stroke();
+  g.fillStyle = HDC.metal; g.fillRect(40.7, 1.2, 1.6, 2.4);
+  const body = lgrad(g, 0, 3, 0, 17, [[0, HDC.bodyHi], [0.4, HDC.body], [1, HDC.bodyDark]]);
+  g.fillStyle = body;
+  g.beginPath(); g.moveTo(31, 6.9); g.lineTo(6, 7.8); g.lineTo(6, 9.9); g.lineTo(31, 11.3); g.closePath(); g.fill();
+  g.beginPath(); g.moveTo(2.4, 1.4); g.lineTo(8.6, 8.2); g.lineTo(8.6, 11.4); g.lineTo(3.4, 11.4); g.lineTo(2.4, 10.4); g.closePath(); g.fill();
+  g.fillStyle = "rgba(255,255,255,0.9)"; g.fillRect(9, 8.5, 22, 0.7);
+  g.fillStyle = "rgba(40,48,60,0.2)"; g.beginPath(); g.arc(5.2, 6.2, 3.7, 0, TAU); g.fill();
+  const tp = t * 2.3;
+  g.strokeStyle = "rgba(22,24,30,0.85)"; g.lineWidth = 0.6;
+  g.beginPath(); g.moveTo(5.2 + Math.cos(tp) * 3.5, 6.2 + Math.sin(tp) * 3.5); g.lineTo(5.2 - Math.cos(tp) * 3.5, 6.2 - Math.sin(tp) * 3.5); g.stroke();
+  g.fillStyle = HDC.metal; g.beginPath(); g.arc(5.2, 6.2, 0.6, 0, TAU); g.fill();
+  g.fillStyle = lgrad(g, 0, 2, 0, 6.5, [[0, HDC.body], [1, HDC.bodyDark]]); rrect(g, 35.4, 2.1, 13.2, 4.4, 1.7); g.fill();
+  g.fillStyle = HDC.metal; rrect(g, 33.6, 3.2, 2.4, 1.6, 0.6); g.fill();
+  g.fillStyle = body;
+  rrect(g, 28.4, 4.4, 20, 11.8, 3.3); g.moveTo(62.1, 10); g.ellipse(47.5, 10, 14.6, 6.4, 0, 0, TAU); g.fill();
+  g.fillStyle = "#ffffff"; rrect(g, 29.5, 11.2, 31, 1.4, 0.7); g.fill();
+  const glass = lgrad(g, 0, 4.4, 0, 10.4, [[0, HDC.glassHi], [0.5, HDC.glass], [1, HDC.glassDark]]);
+  g.fillStyle = glass; rrect(g, 32.6, 5.8, 10, 4, 1.1); g.fill();
+  g.beginPath(); g.moveTo(45.3, 10.4); g.lineTo(45.3, 4.5);
+  g.ellipse(47.5, 10, 13.6, 5.7, 0, -Math.PI / 2 - 0.16, -0.06);
+  g.lineTo(61, 10.4); g.closePath(); g.fill();
+  g.fillStyle = "#1c2a3c"; g.beginPath(); g.arc(52.2, 7.5, 1.7, 0, TAU); g.fill(); g.fillRect(50.6, 8.5, 3.2, 1.9);
+  g.fillStyle = "#f2f2f2"; g.beginPath(); g.arc(52.2, 7.1, 1.75, Math.PI, 0); g.fill();
+  g.strokeStyle = "rgba(255,255,255,0.85)"; g.lineWidth = 0.55; g.lineCap = "round";
+  g.beginPath(); g.moveTo(47.5, 5.4); g.quadraticCurveTo(54, 4.9, 58.2, 6.8); g.stroke();
+  g.beginPath(); g.moveTo(34, 6.7); g.lineTo(37.5, 6.7); g.stroke();
+  g.strokeStyle = "rgba(60,10,12,0.6)"; g.lineWidth = 0.5; g.beginPath(); g.moveTo(44.6, 5); g.lineTo(44.6, 14.6); g.stroke();
+  g.strokeStyle = HDC.metal; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(36.4, 15.6); g.lineTo(35.8, 19.1); g.moveTo(53.6, 15.6); g.lineTo(54.2, 19.1); g.stroke();
+  g.lineWidth = 1.15;
+  g.beginPath(); g.moveTo(29.4, 19.2); g.lineTo(60.6, 19.2); g.quadraticCurveTo(62.6, 19.2, 63.1, 17.3); g.stroke();
+  if ((t | 0) % 36 < 4) { g.fillStyle = "rgba(255,70,70,0.9)"; g.beginPath(); g.arc(3, 1.6, 0.8, 0, TAU); g.fill(); }
+  g.restore();
+}
+
+/* ---- people */
+// A stuntman posed by joint angles (0 = straight down, positive swings toward +x), hips at (x, y).
+function hdMan(g, x, y, o) {
+  g.save(); g.translate(x, y);
+  if (o.rot) g.rotate(o.rot);
+  if (o.sx) g.scale(o.sx, o.sy || 1);
+  const leg = o.leg || 5.2, arm = o.arm || 4.8;
+  for (const [a, side] of [[o.lL, -1], [o.lR, 1]]) {
+    const hx = side * 0.95, ex = hx + Math.sin(a) * leg, ey = Math.cos(a) * leg;
+    hdLimb(g, hx, 0, ex, ey, 1.9, side < 0 ? HDC.suitDark : HDC.suit);
+    g.fillStyle = HDC.boot; g.beginPath(); g.arc(ex, ey, 1.05, 0, TAU); g.fill();
+  }
+  g.fillStyle = lgrad(g, -2, 0, 2, 0, [[0, HDC.suitDark], [0.5, HDC.suit], [1, "#ff9d4f"]]);
+  rrect(g, -2, -5.6, 4, 6.4, 1.7); g.fill();
+  g.fillStyle = "#ffffff"; g.fillRect(-2, -2.7, 4, 0.7);
+  for (const [a, side] of [[o.aL, -1], [o.aR, 1]]) {
+    const sx = side * 1.7, sy = -4.9, ex = sx + Math.sin(a) * arm, ey = sy + Math.cos(a) * arm;
+    hdLimb(g, sx, sy, ex, ey, 1.55, side < 0 ? HDC.suitDark : HDC.suit);
+    g.fillStyle = HDC.glove; g.beginPath(); g.arc(ex, ey, 0.85, 0, TAU); g.fill();
+  }
+  const hy = -7.9, f = o.face || 1;
+  const hg = g.createRadialGradient(-0.8, hy - 1, 0.2, 0, hy, 2.5);
+  hg.addColorStop(0, "#ffffff"); hg.addColorStop(1, "#c9d1da");
+  g.fillStyle = hg; g.beginPath(); g.arc(0, hy, 2.4, 0, TAU); g.fill();
+  g.fillStyle = "#e0393e"; g.beginPath(); g.arc(0, hy, 2.4, Math.PI * 1.15, Math.PI * 1.85); g.lineTo(0, hy); g.closePath(); g.fill();
+  g.fillStyle = HDC.visor; g.beginPath(); g.ellipse(0.75 * f, hy + 0.35, 1.6, 0.95, 0, 0, TAU); g.fill();
+  g.fillStyle = "rgba(170,225,255,0.75)"; g.fillRect(0.95 * f - 0.45, hy - 0.2, 0.9, 0.35);
+  g.restore();
+}
+function hdHang(g, x, y, t) {
+  const sway = 0.1 * Math.sin(t * 0.12);
+  g.save(); g.translate(x + 7, y + 0.5); g.rotate(sway);
+  hdMan(g, 0, 10.1, { aL: -(Math.PI - 0.24), aR: Math.PI - 0.24, arm: 5.6, lL: -0.07 + sway, lR: 0.07 + sway });
+  g.restore();
+}
+function hdFall(g, x, y, f, tumble) {
+  const s = f * 0.55;
+  hdMan(g, x + 7, y + 9.4, {
+    rot: tumble ? f * 0.28 : 0.18 * Math.sin(f * 0.22),
+    aL: -(1.95 + 0.55 * Math.sin(s)), aR: 1.95 + 0.55 * Math.sin(s + 1.4),
+    lL: -(0.5 + 0.32 * Math.sin(s + 0.7)), lR: 0.5 + 0.32 * Math.sin(s + 2.1),
+  });
+}
+function hdStars(g, x, y, t) {
+  for (let i = 0; i < 3; i++) {
+    const a = t * 0.2 + i * 2.094, sx = x + Math.cos(a) * 5.5, sy = y + Math.sin(a) * 1.8;
+    g.fillStyle = HDC.gold; g.beginPath();
+    for (let j = 0; j < 8; j++) { const rr = j % 2 ? 0.5 : 1.6, aa = (j * Math.PI) / 4; g.lineTo(sx + Math.cos(aa) * rr, sy + Math.sin(aa) * rr); }
+    g.closePath(); g.fill();
+  }
+}
+function hdGroundie(g, gm, x, tt) {
+  const t = gm.t;
+  if (t < 6) hdMan(g, x + 7, GROUND - 2.4, { aL: -1.5, aR: 1.5, lL: -1.25, lR: 1.25, sx: 1.25, sy: 0.6 });
+  else if (t < 46) { hdMan(g, x + 4, GROUND - 2.3, { rot: Math.PI / 2, aL: -0.35, aR: 0.45, lL: -0.1, lR: 0.12 }); hdStars(g, x + 12, GROUND - 8, tt); }
+  else if (t < 85) { hdMan(g, x + 5, GROUND - 1.8, { aL: 0.5, aR: 0.9, lL: 1.45, lR: 1.58, leg: 5 }); hdStars(g, x + 5, GROUND - 14.5, tt); }
+  else { const s = Math.sin(t * 0.38); hdMan(g, x + 7, GROUND - 6.4, { aL: 0.45 * s, aR: -0.45 * s, lL: 0.42 * s, lR: -0.42 * s, face: -1 }); }
+}
+// A stuntman who made it: buried to the waist in the hay pile, waving.
+function domeTop(rel) { const d = (rel - DOME.cx) / DOME.rx; return DOME.cy - DOME.ry * Math.sqrt(Math.max(0, 1 - d * d)); }
+function hdRider(g, r, wx, t) {
+  const sink = r.t < 6 ? 7 - r.t : 0, base = HAY_TOP + DOME.cy + 1.8;
+  g.save();
+  g.beginPath(); g.moveTo(wx - 12, -20); g.lineTo(wx + 56, -20); g.lineTo(wx + 56, base);
+  g.ellipse(wx + DOME.cx, base, DOME.rx, DOME.ry, 0, 0, Math.PI, true);
+  g.lineTo(wx - 12, base); g.closePath(); g.clip();
+  hdMan(g, wx + r.off, HAY_TOP + domeTop(r.off) + 3.4 + sink, {
+    aL: -(2.55 + 0.35 * Math.sin(t * 0.3 + r.off)), aR: 2.55 + 0.35 * Math.sin(t * 0.3 + r.off + 1.1), lL: -0.1, lR: 0.1,
+  });
+  g.restore();
+}
+function hdHat(g, x, y, rot) {
+  g.save(); g.translate(x, y); g.rotate(rot);
+  g.fillStyle = HDC.hat; g.beginPath(); g.ellipse(0, 1.6, 4.3, 0.9, 0, 0, TAU); g.fill();
+  rrect(g, -1.9, -1.2, 3.8, 2.9, 1); g.fill();
+  g.fillStyle = "#3b2210"; g.fillRect(-1.9, 0.9, 3.8, 0.6);
+  g.restore();
+}
+function hdDriver(g, x, y, dazed, t) {
+  g.save(); g.translate(x, y);
+  hdLimb(g, 5.6, 10.6, 8.8, 11, 1.7, HDC.jeans); hdLimb(g, 8.8, 11, 9.2, 13.4, 1.6, HDC.jeans);
+  g.fillStyle = "#3a2516"; g.fillRect(8.3, 13.1, 2.4, 1);
+  g.fillStyle = HDC.shirt; rrect(g, 3.4, 6.2, 4.8, 5.2, 1.3); g.fill();
+  g.strokeStyle = "rgba(255,230,210,0.35)"; g.lineWidth = 0.3;
+  g.beginPath(); for (const v of [4.6, 5.8, 7.0]) { g.moveTo(v, 6.4); g.lineTo(v, 11.2); } for (const v of [7.6, 9.2]) { g.moveTo(3.6, v); g.lineTo(8, v); } g.stroke();
+  if (dazed) {
+    const s = Math.sin(t * 0.4);
+    hdLimb(g, 4.2, 7.2, 2.2, 4.6 + s, 1.25, HDC.shirt); hdLimb(g, 7.6, 7.2, 9.8, 4.4 - s, 1.25, HDC.shirt);
+  } else {
+    hdLimb(g, 6.8, 7.4, 10.6, 9.4, 1.3, HDC.shirt);
+    g.fillStyle = HDC.skin; g.beginPath(); g.arc(10.9, 9.6, 0.7, 0, TAU); g.fill();
+  }
+  g.fillStyle = HDC.skin; g.beginPath(); g.arc(6.1, 4.4, 2.15, 0, TAU); g.fill();
+  g.fillStyle = "#5a3a22"; g.fillRect(6.4, 5.3, 1.6, 0.45);
+  g.strokeStyle = "#2a1a10"; g.fillStyle = "#2a1a10"; g.lineWidth = 0.3;
+  if (dazed) { g.beginPath(); g.moveTo(6.6, 3.6); g.lineTo(7.5, 4.4); g.moveTo(7.5, 3.6); g.lineTo(6.6, 4.4); g.stroke(); }
+  else { g.beginPath(); g.arc(7.2, 4.0, 0.32, 0, TAU); g.fill(); }
+  if (!dazed) {
+    g.fillStyle = HDC.hat; g.beginPath(); g.ellipse(6, 2.6, 4.4, 0.85, 0, 0, TAU); g.fill();
+    rrect(g, 4.1, -0.1, 3.8, 2.9, 1); g.fill();
+    g.fillStyle = "#3b2210"; g.fillRect(4.1, 1.7, 3.8, 0.55);
+  }
+  g.restore();
+}
+
+/* ---- the horse */
+function hdHorse(g, x, y, ph, moving, rear) {
+  g.save(); g.translate(x, y);
+  const leg = (hx, phase, far, bent, still) => {
+    let off = 0, lift = 0;
+    if (moving && !still) { off = 2.6 * Math.sin(ph + phase); lift = Math.cos(ph + phase) > 0.4 ? 0.9 : 0; }
+    const top = [hx, 14.6];
+    const knee = [hx + off * 0.45 + (bent ? 2.6 : 0), 18.7 - lift * 0.7 - (bent ? 2.4 : 0)];
+    const hoof = [hx + off + (bent ? 1.2 : 0), 22.6 - lift - (bent ? 4.2 : 0)];
+    g.strokeStyle = far ? HDC.coatDark : HDC.coat; g.lineCap = "round"; g.lineJoin = "round"; g.lineWidth = far ? 1.45 : 1.7;
+    g.beginPath(); g.moveTo(top[0], top[1]); g.lineTo(knee[0], knee[1]); g.lineTo(hoof[0], hoof[1]); g.stroke();
+    g.fillStyle = "#1f1a17"; g.fillRect(hoof[0] - 0.95, hoof[1] - 0.3, 1.9, 0.9);
+  };
+  const coat = lgrad(g, 0, 7, 0, 17, [[0, "#b8703c"], [0.5, HDC.coat], [1, HDC.coatDark]]);
+  if (rear) {
+    leg(6.4, 0, true, false, true); leg(9.0, 0, false, false, true);
+    g.translate(8.5, 15); g.rotate(-0.6); g.translate(-8.5, -15);
+    leg(16.0, 0, true, true, true);
+  } else {
+    leg(16.0, Math.PI, true); leg(6.4, 1.5 * Math.PI, true);
+  }
+  g.strokeStyle = HDC.mane; g.lineWidth = 1.7; g.lineCap = "round";
+  g.beginPath(); g.moveTo(5.2, 9.6); g.quadraticCurveTo(1.6, 11.5, 2.4 + (moving ? Math.sin(ph) * 0.6 : 0), 18.2); g.stroke();
+  g.strokeStyle = "#4a3020"; g.lineWidth = 0.6;
+  g.beginPath(); g.moveTo(4.8, 10.2); g.quadraticCurveTo(2.4, 12.4, 3.2, 17.4); g.stroke();
+  g.fillStyle = coat; g.beginPath(); g.ellipse(13.5, 12.2, 9.4, 4.5, 0, 0, TAU); g.fill();
+  g.strokeStyle = coat; g.lineWidth = 5.4; g.beginPath(); g.moveTo(19.2, 10.6); g.lineTo(23.4, 5.4); g.stroke();
+  g.fillStyle = coat; g.beginPath(); g.ellipse(25.8, 4.4, 3.5, 2.5, -0.35, 0, TAU); g.fill();
+  g.fillStyle = "#ab693c"; g.beginPath(); g.ellipse(28.4, 6.1, 2.4, 1.95, 0.25, 0, TAU); g.fill();
+  g.fillStyle = HDC.coatDark; g.beginPath(); g.moveTo(23.2, 2.4); g.lineTo(23.9, -0.5); g.lineTo(24.9, 2.0); g.closePath(); g.fill();
+  g.strokeStyle = HDC.mane; g.lineWidth = 1.5;
+  g.beginPath(); g.moveTo(16.8, 8.0); g.quadraticCurveTo(19.5, 5.4, 22.6, 2.4); g.stroke();
+  g.strokeStyle = "#f4ede2"; g.lineWidth = 0.75; g.beginPath(); g.moveTo(26.2, 2.6); g.lineTo(29.4, 6.0); g.stroke();
+  g.fillStyle = "#14100c"; g.beginPath(); g.arc(25.1, 3.7, 0.45, 0, TAU); g.fill();
+  g.fillStyle = "#ffffff"; g.fillRect(25.0, 3.45, 0.22, 0.22);
+  g.fillStyle = "#3a2214"; g.beginPath(); g.arc(30.2, 6.5, 0.35, 0, TAU); g.fill();
+  if (rear) leg(18.6, 0, false, true, true);
+  else { leg(18.6, 0, false); leg(9.0, 0.5 * Math.PI, false); }
+  g.strokeStyle = "#1e1b19"; g.lineWidth = 1.3;
+  g.beginPath(); g.moveTo(18.3, 8.6); g.quadraticCurveTo(20.6, 11, 20.9, 13.6); g.stroke();
+  g.fillStyle = "#d9b44a"; g.beginPath(); g.arc(19.6, 10.1, 0.45, 0, TAU); g.fill();
+  g.restore();
+}
+
+/* ---- the wagon */
+function hdWheel(g, cx, cy, r, ang) {
+  g.strokeStyle = "#2b2b2e"; g.lineWidth = 1.15; g.beginPath(); g.arc(cx, cy, r - 0.6, 0, TAU); g.stroke();
+  g.strokeStyle = HDC.wood; g.lineWidth = 0.9; g.beginPath(); g.arc(cx, cy, r - 1.55, 0, TAU); g.stroke();
+  g.strokeStyle = HDC.woodLight; g.lineWidth = 0.5;
+  g.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const a = ang + (i * Math.PI) / 4;
+    g.moveTo(cx + Math.cos(a), cy + Math.sin(a)); g.lineTo(cx + Math.cos(a) * (r - 1.9), cy + Math.sin(a) * (r - 1.9));
+  }
+  g.stroke();
+  g.fillStyle = HDC.woodDark; g.beginPath(); g.arc(cx, cy, 1.2, 0, TAU); g.fill();
+  g.fillStyle = "#c9c9c9"; g.beginPath(); g.arc(cx, cy, 0.45, 0, TAU); g.fill();
+}
+function hdWagon(g, wx, t) {
+  const w = G.wagon, moving = w.moving && w.stopT === 0;
+  g.fillStyle = "rgba(60,40,20,0.22)"; g.beginPath(); g.ellipse(wx + 41, GROUND + 1.4, 42, 2.2, 0, 0, TAU); g.fill();
+  hdBlit(g, hd.cart, wx, HAY_TOP);
+  g.strokeStyle = HDC.woodDark; g.lineWidth = 0.9;
+  g.beginPath(); g.moveTo(wx + 45, GROUND - 11.5); g.lineTo(wx + 68, GROUND - 11.8); g.stroke();
+  const ang = wx / 5.6;
+  hdWheel(g, wx + 8.5, GROUND - 4.6, 5.6, ang); hdWheel(g, wx + 32.5, GROUND - 4.6, 5.6, ang);
+  hdHorse(g, wx + 50, GROUND - 23, wx * 0.36, moving, G.horseRear > 0);
+  const dazed = G.driverDaze > 0 || (G.overReason === "driver" && (G.overPending || G.phase === "over"));
+  hdDriver(g, wx + 38, GROUND - 21, dazed, t);
+  if (!dazed && G.horseRear <= 0) {
+    g.strokeStyle = "#2a1c12"; g.lineWidth = 0.35;
+    g.beginPath(); g.moveTo(wx + 49, GROUND - 11.4); g.quadraticCurveTo(wx + 64, GROUND - 11, wx + 78, GROUND - 17.2); g.stroke();
+  }
+  if (dazed) hdStars(g, wx + 44, GROUND - 24, t);
+}
+
+/* ---- text, HUD, scene */
+function hdText(g, str, x, y, size, col, alpha = 1) {
+  if (alpha <= 0) return;
+  g.save(); g.globalAlpha = Math.min(1, alpha);
+  g.font = `800 ${size}px ${HD_FONT}`; g.textAlign = "center"; g.textBaseline = "middle"; g.lineJoin = "round";
+  const w = g.measureText(str).width;
+  x = clamp(x, w / 2 + 3, W - w / 2 - 3);
+  g.lineWidth = size * 0.24; g.strokeStyle = HDC.ink; g.strokeText(str, x, y);
+  g.fillStyle = col === "rainbow" ? rainbow(g, x - w / 2, x + w / 2) : col; g.fillText(str, x, y);
+  g.restore();
+}
+const popColor = s => (s.startsWith("+") ? HDC.gold : s.startsWith("CLOUD") ? "#a8ecff" : s.startsWith("NEW") ? "#ff6b81" : "#ffffff");
+function hdParticles(g) {
+  for (const p of G.parts) {
+    if (p.k === "straw") {
+      const a = p.t * 0.4 + p.x;
+      g.strokeStyle = "#f0c84a"; g.lineWidth = 0.5; g.lineCap = "round";
+      g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x + Math.cos(a) * 1.8, p.y + Math.sin(a) * 1.8); g.stroke();
+    } else if (p.k === "dust") {
+      g.fillStyle = `rgba(184,146,98,${0.45 * (1 - p.t / p.life)})`;
+      g.beginPath(); g.arc(p.x, p.y, 1.4 + p.t * 0.28, 0, TAU); g.fill();
+    } else if (p.k === "hat") hdHat(g, p.x, p.y + 1.2, p.vx ? p.t * 0.25 : 0.2);
+    else if (p.k === "confetti") {
+      g.save(); g.translate(p.x, p.y); g.rotate(p.t * 0.21 + p.r); g.scale(1, Math.cos(p.t * 0.33 + p.r * 2));
+      g.globalAlpha = Math.min(1, (p.life - p.t) / 15);
+      g.fillStyle = p.c; g.fillRect(-1.4, -0.8, 2.8, 1.6);
+      g.restore();
+    }
+  }
+}
+function hdStick(g) {
+  if (G.phase !== "play") return;
+  const t = input.touch;
+  if (t && t.onStage) {
+    const r = screen.getBoundingClientRect();
+    const ox = (t.ox - r.left) / scale, oy = (t.oy - r.top) / scale, R = STICK_R / scale;
+    g.strokeStyle = "rgba(255,255,255,0.75)"; g.lineWidth = 1.2; g.beginPath(); g.arc(ox, oy, R, 0, TAU); g.stroke();
+    g.fillStyle = "rgba(255,255,255,0.9)"; g.beginPath(); g.arc(ox + t.sx * R, oy + t.sy * R, 4.5, 0, TAU); g.fill();
+    g.strokeStyle = "rgba(10,20,40,0.5)"; g.lineWidth = 0.8; g.stroke();
+  } else if (app.classList.contains("mouse") && input.mouse.active && !input.keys.size) {
+    g.strokeStyle = "rgba(255,255,255,0.7)"; g.lineWidth = 0.8;
+    g.beginPath(); g.moveTo(W / 2 - 5, 150); g.lineTo(W / 2 + 5, 150); g.moveTo(W / 2, 145); g.lineTo(W / 2, 155); g.stroke();
+  }
+}
+function hdHUD(g, cy) {
+  const y0 = PANEL_Y;
+  for (let i = 0; i < 5; i++) {
+    const x = 11 + i * 11, y = y0 + 19, r = G.slots[i], cur = i === G.slots.length && G.phase === "play" && !G.overPending;
+    g.fillStyle = r === true ? "#2fbf71" : r === false ? "#e5484d" : cur ? "#ff8a2a" : "rgba(255,255,255,0.16)";
+    g.beginPath(); g.arc(x, y, 4.3, 0, TAU); g.fill();
+    g.strokeStyle = "#ffffff"; g.lineWidth = 1; g.lineCap = "round"; g.lineJoin = "round";
+    if (r === true) { g.beginPath(); g.moveTo(x - 2, y + 0.1); g.lineTo(x - 0.6, y + 1.5); g.lineTo(x + 2.1, y - 1.5); g.stroke(); }
+    else if (r === false) { g.beginPath(); g.moveTo(x - 1.6, y - 1.6); g.lineTo(x + 1.6, y + 1.6); g.moveTo(x + 1.6, y - 1.6); g.lineTo(x - 1.6, y + 1.6); g.stroke(); }
+    else { g.fillStyle = cur ? "#ffffff" : "rgba(255,255,255,0.55)"; g.beginPath(); g.arc(x, y - 1.3, 1.25, 0, TAU); g.fill(); g.fillRect(x - 1.15, y + 0.3, 2.3, 2.3); }
+  }
+  const label = (s, x, align) => { g.font = `700 7.5px ${HD_FONT}`; g.textAlign = align; g.textBaseline = "alphabetic"; g.fillStyle = "#8fa7c4"; g.fillText(s, x, y0 + 12); };
+  const value = (s, x, align, col) => { g.font = `700 15px ${HD_MONO}`; g.textAlign = align; g.textBaseline = "alphabetic"; g.fillStyle = col; g.fillText(s, x, y0 + 28.5); };
+  label("SCORE", 72, "left"); value(pad(G.score, 6), 72, "left", "#ffffff");
+  label("HIGH", 140, "left"); value(pad(Math.max(topScore(boardOf(G.mode)), G.score), 6), 140, "left", HDC.gold);
+  label("LEVEL", W - 58, "right"); value(pad(G.level, 2), W - 58, "right", "#ffffff");
+  label("HEIGHT", W - 8, "right"); value(pad(GROUND - (cy + CH), 3), W - 8, "right", "#ffffff");
+  g.font = `600 8px ${HD_FONT}`; g.textBaseline = "alphabetic"; g.fillStyle = "#7f97b6";
+  g.textAlign = "left"; g.fillText(PACE[G.pace] + " · " + GRAV[G.grav] + " GRAVITY", 7, y0 + 40);
+  g.font = `800 8px ${HD_FONT}`; g.textAlign = "right";
+  const tag = "FLASH FORWARD", tw = g.measureText(tag).width;
+  g.fillStyle = rainbow(g, W - 8 - tw, W - 8); g.fillText(tag, W - 8, y0 + 40);
+}
+function renderHD(alpha) {
+  hdBuild();
+  const g = sctx, kx = hd.kx, ky = hd.ky;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.imageSmoothingEnabled = true;
+  g.drawImage(hd.bg, 0, 0);
+  g.setTransform(kx, 0, 0, ky, 0, 0);
+  const L = (a, b) => (Math.abs(b - a) > 60 ? b : a + (b - a) * alpha);
+  const c = G.copter, w = G.wagon, cl = G.cloud, t = G.tick + alpha;
+  const cx = L(c.px, c.x), cy = L(c.py, c.y), wx = L(w.px, w.x);
+  const sh = clamp(1 - (GROUND - (cy + CH)) / 300, 0.3, 1);
+  g.fillStyle = `rgba(40,30,15,${0.22 * sh})`;
+  g.beginPath(); g.ellipse(cx + 43, GROUND + 2, 20 * (1.3 - sh * 0.3), 2 * sh + 0.6, 0, 0, TAU); g.fill();
+  for (const gm of G.groundies) hdGroundie(g, gm, L(gm.px, gm.x), t);
+  hdWagon(g, wx, t);
+  for (const r of G.riders) hdRider(g, r, wx, t);
+  const m = G.man;
+  if (m && m.state !== "hang") hdFall(g, L(m.px, m.x), L(m.py, m.y), m.f + alpha, m.state === "tumble");
+  hdCopter(g, cx, cy, t);
+  if (m && m.state === "hang") hdHang(g, cx + HANG_X, cy + HANG_Y, t);
+  hdBlit(g, hd.clouds[cl.i], L(cl.px, cl.x), cl.y);
+  if (m && m.state === "fall" && !m.decided && m.cloud > 0) {
+    const mx = L(m.px, m.x) + 7, my = L(m.py, m.y);
+    hdText(g, "CLOUD +" + fmt(G.level * m.cloud * CLOUD_PTS), mx, m.inCloud ? Math.max(10, cl.y - 6) : Math.max(10, my - 9), 13, "#a8ecff");
+  }
+  hdParticles(g);
+  for (const p of G.pops) hdText(g, p.text, p.x, p.y + 8 - p.t * 0.5, 14, popColor(p.text), p.t > p.life - 12 ? (p.life - p.t) / 12 : 1);
+  hdStick(g);
+  hdHUD(g, cy);
+  const b = G.banner;
+  if (b) {
+    const a = b.t > b.life - 16 ? (b.life - b.t) / 16 : Math.min(1, b.t / 5);
+    hdText(g, b.text, W / 2, 92, 32, b.rainbow ? "rainbow" : "#ffffff", a);
+    hdText(g, b.sub, W / 2, 121, 13, "#ffe9a8", a);
+  }
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  const f = G.flashFx - alpha * FLASH_FADE;
+  if (f > 0) { g.fillStyle = `rgba(255,255,255,${Math.pow(f, 1.5)})`; g.fillRect(0, 0, screen.width, screen.height); }
+}
+// The moment the show jumps from 1986 to full color.
+const calm = () => matchMedia("(prefers-reduced-motion: reduce)").matches;   // no white flash or confetti
+function flashForward() {
+  G.hdOn = true; G.flashFx = calm() ? 0 : 1;
+  G.banner = { text: "FLASH FORWARD", sub: "1986 → 2026", t: 0, life: 100, rainbow: true };
+  for (let i = 0; i < (calm() ? 0 : 64); i++) {
+    G.parts.push({ k: "confetti", x: rand(0, W), y: rand(-36, 6), vx: rand(-0.6, 0.6), vy: rand(0.2, 1.3), t: 0, life: randInt(80, 135), c: pick(RAINBOW), r: rand(0, TAU) });
+  }
+  Sound.flash();
+  announce("Flash forward. The show is now in full color.");
 }
 
 /* ------------------------------------------------------------------ layout */
@@ -1382,7 +1928,7 @@ function positionSheet() {
 
 function updateStatus() {
   const g = GRAV[G.grav] + " GRAVITY";
-  let line = G.mode === "show" ? "LEVEL " + G.level + " · " + PACE[G.pace] + " · " + g
+  let line = G.mode === "show" || G.mode === "flash" ? "LEVEL " + G.level + " · " + PACE[G.pace] + " · " + g
     : G.mode === "drunk" ? "DRUNK · LEVEL " + G.level + " · " + g
     : G.mode === "free" ? "FREE FLIGHT · " + PACE[G.pace] + " · " + g : "";
   if (scored()) line += chaseLines(G.score, boardOf(G.mode));
@@ -1453,11 +1999,13 @@ function showSheet(kind, info = {}) {
       <h1 class="sheet-title">BALE OUT!</h1>
       ${board || `<p class="sheet-lede">Fly the copter, let go of the stuntman, and land him in the hay wagon. The higher the drop, the bigger the score.</p>`}
       <div class="modes">
-        <button class="mode primary" type="button" data-act="show"><span class="mode-name">STUNT SHOW</span><span class="mode-desc">Five stuntmen per level. Land all five to move up. Stay off the horse and the driver. Falling through a cloud earns a bonus.</span></button>
-        <button class="mode" type="button" data-act="drunk"><span class="mode-name">DRUNK MODE</span><span class="mode-desc">Longer wagon, tipsy horse. Land four of five to move up.</span></button>
+        <button class="mode primary" type="button" data-act="show"><span class="mode-name">STUNT SHOW</span><span class="mode-desc">The 1986 original. Land all five stuntmen to move up.</span></button>
+        <button class="mode flash" type="button" data-act="flash"><span class="mode-name">FLASH FORWARD</span><span class="mode-desc">The same show, 40 years later, in full color.</span></button>
+        <button class="mode" type="button" data-act="drunk"><span class="mode-name">DRUNK MODE</span><span class="mode-desc">Longer wagon, tipsy horse. Four of five moves you up.</span></button>
         <button class="mode" type="button" data-act="free"><span class="mode-name">FREE FLIGHT</span><span class="mode-desc">No score, no game over. Just drop guys in the hay.</span></button>
       </div>
       ${records.length ? `<p class="meta">${records.join("")}</p>` : ""}
+      <p class="note rules">Stay off the horse and the driver. Falling through a cloud earns a bonus.</p>
       <p class="note">${how}</p>
       <p class="credit">A tribute to StuntCopter by Duane Blehm, HomeTown Software, 1986. Same rules, new art and code.</p>`;
   } else if (kind === "paused") {
@@ -1539,8 +2087,8 @@ sheet.addEventListener("click", e => {
   if (!b) return;
   Sound.unlock();
   const act = b.dataset.act;
-  if (act === "show" || act === "free" || act === "drunk") startGame(act);
-  else if (act === "again") startGame(G.mode === "drunk" ? "drunk" : "show");
+  if (act === "show" || act === "flash" || act === "free" || act === "drunk") startGame(act);
+  else if (act === "again") startGame(scored() ? G.mode : "show");
   else if (act === "tab") {
     titleBoard = b.dataset.board === "lush" ? "lush" : "main";
     sheet.dataset.board = titleBoard;
@@ -1604,6 +2152,7 @@ function startAttract() {
   resetWorld();
   G.mode = "attract"; G.phase = "title";
   G.pace = 1; G.grav = 4; G.level = 1;
+  G.hdOn = false; G.flashFx = 0;
   G.nextManT = 24;
   app.classList.remove("playing");
   Sound.stopRotor(); releaseWake();
@@ -1622,7 +2171,10 @@ function startGame(mode) {
   G.score = 0; G.slots = []; G.goodJumps = 0; G.hits = 0; G.streak = 0;
   G.overReason = ""; G.recordSet = false;
   G.drunk = { mult: 1, t: randInt(70, 140), stopT: 0, stopLen: 0, stops: 0, seen: [1] };
-  if (mode === "show" || mode === "drunk") titleBoard = boardOf(mode);
+  if (mode !== "free") titleBoard = boardOf(mode);
+  // Flash Forward opens in 1986 black and white, then flashes into color (see flashForward).
+  G.flashT = 0; G.hdOn = false; G.flashFx = 0;
+  if (mode === "flash") G.banner = { text: "1986", sub: "MAC PLUS GRAPHICS", t: 0, life: FLASH_AT - 10 };
   nameCtx = null;
   G.nextManT = 14;
   input.mouse.active = false; input.touch = null; input.pad = null;
@@ -1632,7 +2184,7 @@ function startGame(mode) {
   updateStatus();
   Sound.unlock(); Sound.startRotor();
   requestWake();
-  announce(mode === "show" ? "Stunt show. Level 1." : mode === "drunk" ? "Drunk Mode. Level 1." : "Free flight.");
+  announce(mode === "show" ? "Stunt show. Level 1." : mode === "flash" ? "Flash Forward. Level 1." : mode === "drunk" ? "Drunk Mode. Level 1." : "Free flight.");
 }
 
 function pause() {
@@ -1835,7 +2387,7 @@ function boot(data) {
   syncNow();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(positionSheet).catch(() => {});
   requestAnimationFrame(frame);
-  window.baleOut = { G, tick, release, drop, startGame, layout, store, syncNow, updateStatus, consts: { GROUND, HAY_TOP, HANG_X, HANG_Y, CH, WAG_W, RIGS } };
+  window.baleOut = { G, tick, render, release, drop, startGame, layout, store, syncNow, updateStatus, get W() { return W; }, consts: { GROUND, HAY_TOP, HANG_X, HANG_Y, CH, WAG_W, RIGS, FLASH_AT } };
 }
 
 const hot = window.claude && window.claude.hot;

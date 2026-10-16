@@ -14,6 +14,8 @@ Play it at **https://cjbcjbcjbcjb.github.io/bale-out/**
 
 - **Stunt Show:** five stuntmen per level. Land all five in the hay to move up. Landing on the driver or the horse
   ends the show.
+- **Flash Forward:** the same show in full color. Each game opens in the original black and white, then the screen
+  flashes and everything jumps 40 years ahead. Same rules, and the scores go in the same Hall of Fame.
 - **Drunk Mode:** the hay wagon is 50% longer and the horse is tipsy: he changes speed without warning and stops to
   look around. Land four of five to move up; the driver and the horse are still off limits. Scores go in their own
   Lush Hall of Fame.
@@ -26,9 +28,10 @@ the way down, he also earns a cloud bonus for every moment he spent inside it, b
 
 ## High scores
 
-The top five Stunt Show scores go in a Hall of Fame, each with the name of whoever set it. Scores are saved after
-every landing, so closing the app mid-game doesn't lose them. When `SYNC_URL` in `index.html` points at a Firebase
-Realtime Database (rules in `firebase-rules.json`), the Hall of Fame is shared by every device that plays.
+The top five Stunt Show and Flash Forward scores go in the Hall of Fame, each with the name of whoever set it
+(Drunk Mode has its own Lush Hall of Fame). Scores are saved after every landing, so closing the app mid-game doesn't
+lose them. When `SYNC_URL` in `index.html` points at a Firebase Realtime Database (rules in `firebase-rules.json`),
+the Hall of Fame is shared by every device that plays.
 
 ## Controls
 

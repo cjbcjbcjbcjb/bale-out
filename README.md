@@ -10,6 +10,15 @@ Play it at **https://cjbcjbcjbcjb.github.io/bale-out/**
 2. Tap Share, then **Add to Home Screen**, then **Add**.
 3. Open it from the new icon. It runs full screen, and after the first launch it works offline.
 
+## Modes
+
+- **Stunt Show:** five stuntmen per level. Land all five in the hay to move up. Landing on the driver or the horse
+  ends the show.
+- **Drunk Mode:** the hay wagon is 50% longer and the horse is tipsy: he changes speed without warning and stops to
+  look around. Land four of five to move up; the driver and the horse are still off limits. Scores go in their own
+  Lush Hall of Fame.
+- **Free Flight:** no score and no game over.
+
 ## Scoring
 
 A stuntman who lands in the hay scores the level number times the height of the drop. If he fell through a cloud on

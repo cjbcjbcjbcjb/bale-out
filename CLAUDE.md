@@ -14,9 +14,14 @@ these sessions cannot change Pages settings through the API).
 ## Scores
 
 - Saved in `localStorage` under `bale-out-v1` (format v2): `board` (this device's top 5 with names),
-  `remote` (shared board last fetched), `outbox` (entries not yet uploaded), `names`, `pending` (the running
-  score of an unfinished show, saved after every landing and offered for a name on the next launch),
+  `remote` (shared board last fetched), `lboard`/`lremote` (the same for the Lush Hall of Fame),
+  `outbox` (entries not yet uploaded), `names`, `pending` (the running score of an unfinished show, with
+  `k: "lush"` for Drunk Mode, saved after every landing and offered for a name on the next launch),
   `seeded` (this device's board has been queued for upload once).
+- Two boards share one database path: Drunk Mode entries have ids starting `lush-`, everything else is the
+  main Hall of Fame. `pullBoard` fetches the top 200 by score and splits them.
+- Drunk Mode uses `RIGS.long` (cart 50% longer, sprite `cart_long`) and `drunkStep()` for the tipsy horse;
+  four of five stuntmen moves you up a level.
 - `SYNC_URL` near the top of the game script is the Firebase Realtime Database address for the shared
   Hall of Fame: https://bale-out-default-rtdb.europe-west1.firebasedatabase.app (Firebase project
   `bale-out` in Chris's Google account). Empty means scores stay on each device. The database rules are in `firebase-rules.json`

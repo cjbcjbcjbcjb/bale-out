@@ -1313,9 +1313,21 @@ function updateStatus() {
   const g = GRAV[G.grav] + " GRAVITY";
   let line = G.mode === "show" ? "LEVEL " + G.level + " · " + PACE[G.pace] + " · " + g
     : G.mode === "free" ? "FREE FLIGHT · " + PACE[G.pace] + " · " + g : "";
-  const t = topEntry();
-  if (G.mode === "show" && t) line += G.score > t.s ? "\nNEW HIGH SCORE!" : "\nTO BEAT: " + t.n + " " + fmt(t.s);
+  if (G.mode === "show") line += chaseLines(G.score);
   statusEl.textContent = line;
+}
+// Live countdowns for the show in progress. Scores move in steps of 10, so beating a score takes 10 more than it.
+function chaseLines(score) {
+  const b = boardEntries();
+  if (!b.length) return "";
+  const top = b[0];
+  if (score > top.s) return "\nNEW HIGH SCORE!";
+  let out = "\nBEAT " + top.n + ": " + fmt(top.s + 10 - score) + " TO GO";
+  const last = b[b.length - 1];
+  if (b.length >= BOARD_SIZE && score <= last.s) out += "\nHALL OF FAME: " + fmt(last.s + 10 - score) + " TO GO";
+  else if (score > 0) out += "\nHALL OF FAME: #" + rankFor(score) + " SO FAR";
+  else out += "\nHALL OF FAME: OPEN SPOT";
+  return out;
 }
 
 /* ------------------------------------------------------------------ menus */
@@ -1727,7 +1739,7 @@ function boot(data) {
   syncNow();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(positionSheet).catch(() => {});
   requestAnimationFrame(frame);
-  window.baleOut = { G, tick, release, drop, startGame, layout, store, syncNow, consts: { GROUND, HAY_TOP, HANG_X, HANG_Y, CH, WAG_W } };
+  window.baleOut = { G, tick, release, drop, startGame, layout, store, syncNow, updateStatus, consts: { GROUND, HAY_TOP, HANG_X, HANG_Y, CH, WAG_W } };
 }
 
 const hot = window.claude && window.claude.hot;

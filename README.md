@@ -19,7 +19,9 @@ Play it at **https://cjbcjbcjbcjb.github.io/bale-out/**
 - **Drunk Mode:** the hay wagon is 50% longer and the horse is tipsy: he changes speed without warning and stops to
   look around. Land four of five to move up; the driver and the horse are still off limits. Scores go in their own
   Lush Hall of Fame.
-- **Free Flight:** no score and no game over.
+- **Neon Drop:** the same show as abstract neon art. A glider drops a glowing cube into a light-catcher sliding along
+  a synthwave grid, to a soundtrack synthesised live in the browser. Land in the blue basin and keep off the red core
+  and drive pod. Same scoring as the Stunt Show, and the scores go in the same Hall of Fame.
 
 ## Scoring
 
@@ -28,10 +30,10 @@ the way down, he also earns a cloud bonus for every moment he spent inside it, b
 
 ## High scores
 
-The top five Stunt Show and Flash Forward scores go in the Hall of Fame, each with the name of whoever set it
-(Drunk Mode has its own Lush Hall of Fame). Scores are saved after every landing, so closing the app mid-game doesn't
-lose them. When `SYNC_URL` in `index.html` points at a Firebase Realtime Database (rules in `firebase-rules.json`),
-the Hall of Fame is shared by every device that plays.
+The top five Stunt Show, Flash Forward and Neon Drop scores go in the Hall of Fame, each with the name of whoever
+set it (Drunk Mode has its own Lush Hall of Fame). Scores are saved after every landing, so closing the app mid-game
+doesn't lose them. When `SYNC_URL` in `index.html` points at a Firebase Realtime Database (rules in
+`firebase-rules.json`), the Hall of Fame is shared by every device that plays.
 
 ## Controls
 

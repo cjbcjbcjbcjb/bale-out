@@ -167,11 +167,20 @@ body {
   cursor: pointer; font: inherit; touch-action: manipulation;
 }
 .mode.primary { background: var(--pix); color: var(--phos); }
-/* Flash Forward is the one thing on the menu in color */
+/* Flash Forward and Neon Drop are the cards in color */
 .mode.flash {
   background: linear-gradient(115deg, #ffb3c1 0%, #ffd6a5 22%, #fdffb6 42%, #caffbf 60%, #9bf6ff 78%, #c8b6ff 100%);
   background-size: 220% 100%; background-position: 0% 50%;
 }
+.mode.neon {
+  color: #efe4ff; padding-bottom: 26px;
+  background:
+    repeating-linear-gradient(90deg, rgba(1, 205, 254, 0.24) 0 1px, transparent 1px 16px) bottom / 100% 15px no-repeat,
+    repeating-linear-gradient(0deg, rgba(255, 113, 206, 0.32) 0 1px, transparent 1px 5px) bottom / 100% 15px no-repeat,
+    linear-gradient(#0d0221 0%, #2b0a52 74%, #4a0f5e 100%);
+}
+#sheet.compact .mode.neon { padding-bottom: 22px; }
+.mode.neon .mode-name { color: #ff71ce; text-shadow: 0 0 6px rgba(255, 113, 206, 0.85); }
 .mode-name { font: 700 14px/1.1 var(--font-px); letter-spacing: 0.03em; }
 .mode-desc { font: 13.5px/1.4 var(--font-ui); }
 .row { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -255,6 +264,8 @@ body {
 @media (prefers-reduced-motion: no-preference) {
   .mode.flash { animation: flash-sheen 7s ease-in-out infinite alternate; }
   @keyframes flash-sheen { to { background-position: 100% 50%; } }
+  .mode.neon .mode-name { animation: neon-flicker 6s steps(1) infinite; }
+  @keyframes neon-flicker { 0%, 90%, 92.5%, 95.5%, 100% { opacity: 1; } 91% { opacity: 0.35; } 94% { opacity: 0.6; } }
   .hof-row.is-new { animation: hof-blink 0.5s steps(1) 6; }
   @keyframes hof-blink { 50% { background: var(--phos); color: var(--pix); } }
 }
@@ -303,7 +314,6 @@ const WAG_W = 82, HAY_TOP = GROUND - 21, HORSE_BACK = GROUND - 15;
 const COPTER_MIN_Y = -2, COPTER_MAX_Y = GROUND - 22 - 10 - CH;
 const PACE = ["", "WALK", "TROT", "GALLOP"];
 const GRAV = ["", "FLOATY", "LIGHT", "NORMAL", "HEAVY"];
-const CHEERS = ["NICE!", "TA-DA!", "YEEHAW!", "SOFT ONE!", "HAY THERE!"];
 const STICK_R = 42;    // css px of thumb travel for full stick
 const CLOUD_PTS = 20;  // cloud bonus per level for every tick the stuntman spends inside a cloud
 // The rig: hay cart, driver and horse. Drunk Mode hitches up a cart 50% longer.
@@ -418,8 +428,9 @@ function addToBoard(name, run) {
   syncNow();
   return entry;
 }
-// Stunt Show, Flash Forward (the same show in color) and Drunk Mode keep score; Free Flight and the demo do not.
-const scored = () => G.mode === "show" || G.mode === "flash" || G.mode === "drunk";
+// Every mode keeps score: Stunt Show, Flash Forward and Neon Drop (the same show in new art) and Drunk Mode.
+// Only the demo behind the title menu doesn't.
+const scored = () => G.mode === "show" || G.mode === "flash" || G.mode === "neon" || G.mode === "drunk";
 function notePending() {
   if (!scored() || !(G.score > 0)) return;
   store.pending = { s: G.score, l: G.level, d: today(), k: boardOf(G.mode) };
@@ -717,6 +728,7 @@ const Sound = {
     src.start(t0, Math.random() * 0.5); src.stop(t0 + dur + 0.02);
   },
   startRotor() {
+    if (G.mode === "neon") return this.startMusic();   // Neon Drop has a soundtrack instead
     if (!this.ctx || this.rotor) return;
     const c = this.ctx;
     const src = c.createBufferSource(); src.buffer = this.noise; src.loop = true;
@@ -731,18 +743,25 @@ const Sound = {
     src.start(); lfo.start();
     this.rotor = { src, lfo, bias, am };
   },
+  startMusic() { if (this.ctx) Music.start(this.ctx, this.master); },
   stopRotor() {
+    Music.stop();
     const r = this.rotor;
     if (!r) return;
     try { r.src.stop(); r.lfo.stop(); if (r.bias) r.bias.stop(); } catch (e) { /* already stopped */ }
     r.am.disconnect();
     this.rotor = null;
   },
-  swish() { if (this.ready()) this.hiss(this.ctx.currentTime, 0.12, 0.12, 1400, "bandpass", 1.4); },
+  swish() {
+    if (!this.ready()) return;
+    if (G.mode === "neon") return NeonFx.swish(this);
+    this.hiss(this.ctx.currentTime, 0.12, 0.12, 1400, "bandpass", 1.4);
+  },
   whistle(sec) {
     if (!this.ready()) return;
     this.stopWhistle();
     const t0 = this.ctx.currentTime, d = clamp(sec, 0.25, 6);
+    if (G.mode === "neon") { this.whistleNode = NeonFx.whistle(this, d); return; }
     this.whistleNode = this.tone(1500, t0, d, { type: "sine", vol: 0.035, f2: 520 });
   },
   stopWhistle() {
@@ -753,12 +772,17 @@ const Sound = {
   },
   fanfare(level) {
     if (!this.ready()) return;
+    if (G.mode === "neon") return NeonFx.chime(this);
     const t0 = this.ctx.currentTime + 0.03;
     const base = 196 * Math.pow(2, Math.min(level - 1, 9) * 2 / 12);
     const starts = [0, 0.167, 0.25, 0.333];
     [1, 1.26, 1.5, 2].forEach((r, i) => this.tone(base * r, t0 + starts[i], 0.7 - starts[i], { vol: 0.045 }));
   },
-  hay() { if (this.ready()) this.hiss(this.ctx.currentTime, 0.16, 0.22, 2600, "bandpass", 0.9); },
+  hay() {
+    if (!this.ready()) return;
+    if (G.mode === "neon") return NeonFx.catch(this);
+    this.hiss(this.ctx.currentTime, 0.16, 0.22, 2600, "bandpass", 0.9);
+  },
   hic() {
     if (!this.ready()) return;
     const t0 = this.ctx.currentTime;
@@ -767,23 +791,27 @@ const Sound = {
   },
   bonus() {
     if (!this.ready()) return;
+    if (G.mode === "neon") return NeonFx.bonus(this);
     const t0 = this.ctx.currentTime + 0.4;
     [1047, 1319, 1568, 2093].forEach((f, i) => this.tone(f, t0 + i * 0.055, 0.08, { type: "triangle", vol: 0.07 }));
   },
   thud() {
     if (!this.ready()) return;
+    if (G.mode === "neon") return NeonFx.thud(this);
     const t0 = this.ctx.currentTime;
     this.tone(150, t0, 0.22, { type: "sine", vol: 0.32, f2: 42 });
     this.hiss(t0, 0.16, 0.25, 320);
   },
   bonk() {
     if (!this.ready()) return;
+    if (G.mode === "neon") return NeonFx.glitch(this);
     const t0 = this.ctx.currentTime;
     this.tone(720, t0, 0.11, { vol: 0.07, f2: 240 });
     this.tone(1440, t0, 0.05, { type: "triangle", vol: 0.06 });
   },
   neigh() {
     if (!this.ready()) return;
+    if (G.mode === "neon") return NeonFx.zap(this);
     const c = this.ctx, t0 = c.currentTime + 0.01;
     const o = c.createOscillator(); o.type = "sawtooth";
     o.frequency.setValueAtTime(640, t0);
@@ -800,6 +828,7 @@ const Sound = {
   },
   levelUp() {
     if (!this.ready()) return;
+    if (G.mode === "neon") return NeonFx.levelUp(this);
     const t0 = this.ctx.currentTime + 0.75;
     [1, 1.26, 1.5, 2, 2.52, 3].forEach((r, i) => this.tone(392 * r, t0 + i * 0.07, 0.09, { vol: 0.05 }));
   },
@@ -816,6 +845,7 @@ const Sound = {
   },
   sad() {
     if (!this.ready()) return;
+    if (G.mode === "neon") return NeonFx.powerDown(this);
     const t0 = this.ctx.currentTime + 0.05;
     [392, 370, 349].forEach((f, i) => this.tone(f, t0 + i * 0.32, 0.3, { type: "triangle", vol: 0.1 }));
     const last = this.tone(330, t0 + 0.96, 0.85, { type: "triangle", vol: 0.1 });
@@ -840,6 +870,7 @@ const G = {
   overPending: false, overT: 0, overReason: "",
   banner: null, stick: [0, 0],
   flashT: 0, hdOn: false, flashFx: 0,   // Flash Forward: ticks so far, color on, white flash left
+  gridT: 0, neonT0: 0,                  // Neon Drop: how far the floor has rolled, when the show started
   ai: { alt: 90, restX: 200, restY: 80 },
 };
 
@@ -915,12 +946,13 @@ function levelUp() {
   if (G.pace === 3 && G.grav > 1) G.grav--;
   if (G.pace < 3) G.pace++;
   G.slots = []; G.goodJumps = 0;
-  const paceWord = (G.mode === "drunk" ? PACE_DRUNK : PACE)[G.pace];
+  const paceWord = (G.mode === "drunk" ? PACE_DRUNK : G.mode === "neon" ? PACE_NEON : PACE)[G.pace];
+  Music.intensity = Math.min(3, G.level);
   G.banner = { text: "LEVEL " + G.level, sub: paceWord + " · " + GRAV[G.grav] + " GRAVITY", t: 0, life: 84 };
   Sound.levelUp();
   notePending();
   updateStatus();
-  announce("Level " + G.level + ". " + (G.mode === "drunk" ? "The horse is " + paceWord.toLowerCase() : "The wagon is at a " + paceWord.toLowerCase()) + ", gravity is " + GRAV[G.grav].toLowerCase() + ".");
+  announce("Level " + G.level + ". " + (G.mode === "drunk" ? "The horse is " + paceWord.toLowerCase() : G.mode === "neon" ? "The catcher is at " + paceWord.toLowerCase() + " speed" : "The wagon is at a " + paceWord.toLowerCase()) + ", gravity is " + GRAV[G.grav].toLowerCase() + ".");
 }
 
 function triggerOver(reason, delay) {
@@ -967,7 +999,6 @@ function decide(m) {
   if (rel >= R.driverEnd && rel < R.width) { m.target = "horse"; return; }
   Sound.stopWhistle();
   if (scored()) G.slots.push(false);
-  else if (G.mode === "free") G.streak = 0;
 }
 
 function landInHay(m, rel) {
@@ -986,7 +1017,7 @@ function landInHay(m, rel) {
     notePending();
     pop("+" + fmt(pts), lx, HAY_TOP - 24);
     if (bonus > 0) pop("CLOUD +" + fmt(bonus), lx, HAY_TOP - 44);
-    announce("In the hay. " + fmt(pts) + " points" + (bonus > 0 ? ", plus a " + fmt(bonus) + " point cloud bonus." : "."));
+    announce((G.mode === "neon" ? "Caught. " : "In the hay. ") + fmt(pts) + " points" + (bonus > 0 ? ", plus a " + fmt(bonus) + " point cloud bonus." : "."));
     Sound.hay(); Sound.fanfare(G.level);
     if (bonus > 0) Sound.bonus();
     if (best > 0 && G.score > best && !G.recordSet) {
@@ -996,14 +1027,6 @@ function landInHay(m, rel) {
       announce("New record! " + fmt(G.score) + " points.");
     }
     updateStatus();
-  } else if (G.mode === "free") {
-    G.hits++; G.streak++;
-    if (G.streak > store.freeBest) { store.freeBest = G.streak; save(); }
-    const center = Math.abs(rel - 21) <= 3;
-    pop(G.streak >= 3 ? G.streak + " IN A ROW!" : center ? "BULLSEYE!" : pick(CHEERS), lx, HAY_TOP - 24);
-    if ((m.cloud || 0) >= 8) pop("CLOUD DIVE!", lx, HAY_TOP - 44);
-    announce("In the hay. " + G.streak + " in a row.");
-    Sound.hay(); Sound.fanfare(1);
   }
   G.nextManT = 30;
 }
@@ -1014,22 +1037,22 @@ function hitDriver(m) {
   G.driverDaze = 96;
   const hx = G.wagon.x + 44 + rig().shift, hy = GROUND - 22;
   G.parts.push({ k: "hat", x: hx, y: hy, vx: -0.9, vy: -3.6, t: 0, life: 100 });
-  if (G.mode !== "attract") { Sound.bonk(); pop("BONK!", hx, hy - 16); }
+  if (G.mode !== "attract") { Sound.bonk(); pop(G.mode === "neon" ? "GLITCH!" : "BONK!", hx, hy - 16); }
   if (scored()) {
     G.slots.push(false); G.wagon.moving = false; triggerOver("driver");
-    announce("Your stuntman landed on the driver. The show is over.");
-  } else if (G.mode === "free") G.streak = 0;
+    announce(G.mode === "neon" ? "Your cube hit the core. The show is over." : "Your stuntman landed on the driver. The show is over.");
+  }
 }
 
 function hitHorse(m) {
   Sound.stopWhistle();
   m.state = "tumble"; m.vx = 1.6; m.vy = -3.6; m.target = null;
   G.horseRear = 52; G.wagon.stopT = Math.max(G.wagon.stopT, 52);
-  if (G.mode !== "attract") { Sound.neigh(); pop("NEIGH!", G.wagon.x + 68 + rig().shift, GROUND - 44); }
+  if (G.mode !== "attract") { Sound.neigh(); pop(G.mode === "neon" ? "ZAP!" : "NEIGH!", G.wagon.x + 68 + rig().shift, GROUND - 44); }
   if (scored()) {
     G.slots.push(false); G.wagon.moving = false; triggerOver("horse");
-    announce("Your stuntman landed on the horse. The show is over.");
-  } else if (G.mode === "free") G.streak = 0;
+    announce(G.mode === "neon" ? "Your cube hit the drive pod. The show is over." : "Your stuntman landed on the horse. The show is over.");
+  }
 }
 
 function landOnGround(m) {
@@ -1042,7 +1065,7 @@ function landOnGround(m) {
   }
   if (G.mode !== "attract") {
     Sound.thud();
-    if (plain) { pop("OOF!", m.x + 7, GROUND - 30); announce("Missed the wagon."); }
+    if (plain) { pop(G.mode === "neon" ? "MISS!" : "OOF!", m.x + 7, GROUND - 30); announce(G.mode === "neon" ? "Missed the catcher." : "Missed the wagon."); }
   }
   if (!G.overPending) G.nextManT = 22;
 }
@@ -1143,6 +1166,7 @@ function tick() {
   if (G.horseRear > 0) G.horseRear--;
   if (G.banner && ++G.banner.t > G.banner.life) G.banner = null;
   if (G.flashFx > 0) G.flashFx = Math.max(0, G.flashFx - FLASH_FADE);
+  if (G.mode === "neon" && G.phase === "play" && w.moving && w.stopT === 0) G.gridT += G.pace;
   if (G.mode === "flash" && !G.hdOn) {
     if (++G.flashT >= FLASH_AT) flashForward();
     else if (G.flashT === FLASH_AT - 16) Sound.charge();
@@ -1252,16 +1276,12 @@ function drawHUD(g, cy) {
     x += 76;
     text(g, "SCORE " + pad(G.score, 6), x, y1, { s: 2, col: "paper" });
     text(g, "HIGH  " + pad(Math.max(topScore(boardOf(G.mode)), G.score), 6), x, y2, { s: 2, col: "paper" });
-  } else if (G.mode === "free") {
-    text(g, "HITS " + pad(G.hits, 3), x, y1, { s: 2, col: "paper" });
-    text(g, "STREAK " + pad(G.streak, 2), x, y2, { s: 2, col: "paper" });
-    text(g, "BEST " + pad(store.freeBest, 2), x + 124, y1, { s: 2, col: "paper" });
   } else {
     text(g, "DEMO", x, y1, { s: 2, col: "paper" });
     text(g, "HIGH " + pad(topScore(), 6), x, y2, { s: 2, col: "paper" });
   }
   const rx = W - 7;
-  text(g, scored() ? "LV " + pad(G.level, 2) : G.mode === "free" ? "FREE" : "", rx, y1, { s: 2, col: "paper", align: "right" });
+  text(g, scored() ? "LV " + pad(G.level, 2) : "", rx, y1, { s: 2, col: "paper", align: "right" });
   text(g, "HT " + pad(GROUND - (cy + CH), 3), rx, y2, { s: 2, col: "paper", align: "right" });
   text(g, (G.mode === "drunk" ? PACE_DRUNK : PACE)[G.pace], rx - 84, y1 + 3, { col: "paper", align: "right" });
   text(g, GRAV[G.grav], rx - 84, y2 + 4, { col: "paper", align: "right" });
@@ -1290,6 +1310,7 @@ function drawStickGuide(g) {
 
 function render(alpha) {
   if (G.mode === "flash" && G.hdOn) { renderHD(alpha); return; }
+  if (G.mode === "neon") { renderNeon(alpha); return; }
   const g = bctx;
   g.drawImage(bg, 0, 0);
   const L = (a, b) => (Math.abs(b - a) > 60 ? b : a + (b - a) * alpha);
@@ -1851,6 +1872,766 @@ function flashForward() {
   announce("Flash forward. The show is now in full color.");
 }
 
+/* ------------------------------------------------------------------ Neon Drop: the synthwave soundtrack */
+// A 16-bar loop in A minor at 100 BPM, synthesised live with Web Audio: drums with a gated-reverb snare, an
+// octave bass and a pad that pump under the kick, a delayed arpeggio, and a lead over the second eight bars.
+// The scheduler works on any AudioContext, so the same code plays live and renders offline in the tests.
+const mtof = n => 440 * Math.pow(2, (n - 69) / 12);
+const SONG = {
+  bpm: 100,
+  bars: ["Am", "F", "C", "G", "Am", "F", "C", "G", "F", "G", "Am", "Am", "F", "G", "E", "E"],
+  chords: { Am: [57, 60, 64], F: [57, 60, 65], C: [55, 60, 64], G: [55, 59, 62], E: [56, 59, 64] },
+  roots: { Am: 45, F: 41, C: 48, G: 43, E: 40 },
+  lead: [ // [bar, 16th step, MIDI note, length in 16ths]
+    [8, 0, 72, 4], [8, 4, 69, 4], [8, 8, 72, 4], [8, 12, 74, 4],
+    [9, 0, 74, 8], [9, 8, 71, 4], [9, 12, 67, 4],
+    [10, 0, 76, 12], [10, 12, 74, 4],
+    [11, 0, 72, 16],
+    [12, 0, 72, 4], [12, 4, 69, 4], [12, 8, 72, 4], [12, 12, 77, 4],
+    [13, 0, 76, 8], [13, 8, 74, 4], [13, 12, 71, 4],
+    [14, 0, 68, 8], [14, 8, 71, 8],
+    [15, 0, 76, 16],
+  ],
+};
+const ARP = [0, 1, 2, 3, 4, 5, 3, 1];   // up through the chord over two octaves
+const Music = {
+  playing: false, ctx: null, nodes: null, timer: null, step: 0, next: 0, t0: 0, intensity: 1, fft: null,
+  bufCache: typeof WeakMap === "function" ? new WeakMap() : null,
+  get s16() { return 60 / SONG.bpm / 4; },
+  // Noise and a reverb impulse, made once per AudioContext.
+  bufs(c) {
+    let b = this.bufCache && this.bufCache.get(c);
+    if (b) return b;
+    const sr = c.sampleRate, noise = c.createBuffer(1, sr, sr), d = noise.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const len = Math.floor(sr * 1.6), ir = c.createBuffer(2, len, sr);
+    for (let ch = 0; ch < 2; ch++) {
+      const x = ir.getChannelData(ch);
+      for (let i = 0; i < len; i++) x[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.8);
+    }
+    b = { noise, ir };
+    if (this.bufCache) this.bufCache.set(c, b);
+    return b;
+  },
+  // The mixing desk. Everything goes through a compressor and an analyser (for the light meter) to `dest`.
+  desk(c, dest) {
+    const n = {}, gain = v => { const g = c.createGain(); g.gain.value = v; return g; };
+    n.out = gain(0.62); n.out.connect(dest);
+    n.scope = c.createAnalyser(); n.scope.fftSize = 256; n.scope.smoothingTimeConstant = 0.72; n.scope.connect(n.out);
+    n.comp = c.createDynamicsCompressor();
+    n.comp.threshold.value = -16; n.comp.knee.value = 10; n.comp.ratio.value = 4; n.comp.attack.value = 0.004; n.comp.release.value = 0.22;
+    n.comp.connect(n.scope);
+    n.mix = gain(1); n.mix.connect(n.comp);
+    n.duck = gain(1); n.duck.connect(n.mix);               // bass, pad and arpeggio pump under the kick
+    const { ir } = this.bufs(c);
+    n.verb = c.createConvolver(); n.verb.buffer = ir;
+    n.send = gain(1); n.send.connect(n.verb);
+    n.ret = gain(0.3); n.verb.connect(n.ret); n.ret.connect(n.mix);
+    n.gverb = c.createConvolver(); n.gverb.buffer = ir;    // the gated reverb on the snare
+    n.gate = gain(0); n.gverb.connect(n.gate); n.gate.connect(n.mix);
+    n.delay = c.createDelay(1.5); n.delay.delayTime.value = this.s16 * 3;
+    n.dlp = c.createBiquadFilter(); n.dlp.type = "lowpass"; n.dlp.frequency.value = 2400;
+    n.fb = gain(0.36); n.delay.connect(n.dlp); n.dlp.connect(n.fb); n.fb.connect(n.delay);
+    n.echo = gain(0.3); n.dlp.connect(n.echo); n.echo.connect(n.duck);
+    return n;
+  },
+  kick(t) {
+    const c = this.ctx, n = this.nodes, o = c.createOscillator(), g = c.createGain();
+    o.type = "sine"; o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.11);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.9, t + 0.005); g.gain.exponentialRampToValueAtTime(0.001, t + 0.34);
+    o.connect(g); g.connect(n.mix); o.start(t); o.stop(t + 0.36);
+    n.duck.gain.setValueAtTime(0.4, t); n.duck.gain.linearRampToValueAtTime(1, t + 0.26);
+  },
+  snare(t, vol) {
+    const c = this.ctx, n = this.nodes, s = c.createBufferSource(), hp = c.createBiquadFilter(), g = c.createGain();
+    s.buffer = this.bufs(c).noise; hp.type = "highpass"; hp.frequency.value = 1000;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.4 * vol, t + 0.003); g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    s.connect(hp); hp.connect(g); g.connect(n.mix); g.connect(n.gverb);
+    s.start(t, Math.random() * 0.6, 0.24);
+    const o = c.createOscillator(), og = c.createGain();
+    o.type = "triangle"; o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(150, t + 0.08);
+    og.gain.setValueAtTime(0.0001, t); og.gain.exponentialRampToValueAtTime(0.32 * vol, t + 0.003); og.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+    o.connect(og); og.connect(n.mix); og.connect(n.gverb); o.start(t); o.stop(t + 0.15);
+    if (vol >= 1) { n.gate.gain.setValueAtTime(0.85, t); n.gate.gain.setValueAtTime(0.85, t + 0.2); n.gate.gain.linearRampToValueAtTime(0, t + 0.32); }
+  },
+  hat(t, open, vol = 1) {
+    const c = this.ctx, n = this.nodes, s = c.createBufferSource(), hp = c.createBiquadFilter(), g = c.createGain(), len = open ? 0.26 : 0.045;
+    s.buffer = this.bufs(c).noise; hp.type = "highpass"; hp.frequency.value = 7200;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime((open ? 0.08 : 0.1) * vol, t + 0.002); g.gain.exponentialRampToValueAtTime(0.001, t + len);
+    s.connect(hp); hp.connect(g); g.connect(n.mix); s.start(t, Math.random() * 0.6, len + 0.02);
+  },
+  bass(t, note, len) {
+    const c = this.ctx, n = this.nodes, lp = c.createBiquadFilter(), g = c.createGain(), f = mtof(note);
+    lp.type = "lowpass"; lp.Q.value = 6; lp.frequency.setValueAtTime(1600, t); lp.frequency.exponentialRampToValueAtTime(240, t + len);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.24, t + 0.006); g.gain.exponentialRampToValueAtTime(0.12, t + len * 0.7); g.gain.exponentialRampToValueAtTime(0.0005, t + len + 0.03);
+    lp.connect(g); g.connect(n.duck);
+    for (const d of [-7, 7]) { const o = c.createOscillator(); o.type = "sawtooth"; o.frequency.value = f; o.detune.value = d; o.connect(lp); o.start(t); o.stop(t + len + 0.05); }
+  },
+  pad(t, notes, len) {
+    const c = this.ctx, n = this.nodes, lp = c.createBiquadFilter(), g = c.createGain();
+    lp.type = "lowpass"; lp.Q.value = 0.7;
+    lp.frequency.setValueAtTime(650, t); lp.frequency.linearRampToValueAtTime(1500, t + len * 0.5); lp.frequency.linearRampToValueAtTime(800, t + len);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.045, t + 0.5); g.gain.setValueAtTime(0.045, t + len - 0.05); g.gain.linearRampToValueAtTime(0.0001, t + len + 0.6);
+    lp.connect(g); g.connect(n.duck); g.connect(n.send);
+    for (const note of notes) for (const d of [-10, 10]) {
+      const o = c.createOscillator(); o.type = "sawtooth"; o.frequency.value = mtof(note); o.detune.value = d;
+      o.connect(lp); o.start(t); o.stop(t + len + 0.65);
+    }
+  },
+  arp(t, note, bright) {
+    const c = this.ctx, n = this.nodes, o = c.createOscillator(), lp = c.createBiquadFilter(), g = c.createGain();
+    o.type = "square"; o.frequency.value = mtof(note);
+    lp.type = "lowpass"; lp.frequency.setValueAtTime(2200 + 1400 * bright, t); lp.frequency.exponentialRampToValueAtTime(700, t + 0.14);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.04, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0006, t + 0.16);
+    o.connect(lp); lp.connect(g); g.connect(n.duck); g.connect(n.delay);
+    o.start(t); o.stop(t + 0.18);
+  },
+  lead(t, note, len) {
+    const c = this.ctx, n = this.nodes, f = mtof(note), lp = c.createBiquadFilter(), g = c.createGain(), end = t + len;
+    lp.type = "lowpass"; lp.frequency.value = 2600; lp.Q.value = 1.2;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.06, t + 0.025);
+    g.gain.setValueAtTime(0.055, Math.max(t + 0.03, end - 0.04)); g.gain.exponentialRampToValueAtTime(0.0006, end + 0.2);
+    lp.connect(g); g.connect(n.mix); g.connect(n.delay); g.connect(n.send);
+    const lfo = c.createOscillator(), depth = c.createGain();
+    lfo.frequency.value = 5.5; depth.gain.setValueAtTime(0, t); depth.gain.linearRampToValueAtTime(f * 0.01, t + Math.min(0.45, len));
+    lfo.connect(depth);
+    for (const [type, det] of [["sawtooth", -6], ["sawtooth", 6], ["square", -1200]]) {
+      const o = c.createOscillator(); o.type = type; o.frequency.value = f; o.detune.value = det; depth.connect(o.frequency);
+      o.connect(lp); o.start(t); o.stop(end + 0.25);
+    }
+    lfo.start(t); lfo.stop(end + 0.25);
+  },
+  // One 16th-note step of the arrangement. The first two bars are just pad and arpeggio; the drums thicken
+  // (16th hats, a brighter arpeggio) as the show reaches higher levels.
+  play(step, t) {
+    const pos = step % 16, bar = Math.floor(step / 16) % 16, name = SONG.bars[bar], ch = SONG.chords[name], s16 = this.s16, lvl = this.intensity;
+    if (pos === 0) this.pad(t, ch.concat(ch[0] + 12), s16 * 16);
+    const tones = ch.concat(ch.map(x => x + 12));
+    this.arp(t, tones[ARP[pos % 8]] + 12, Math.min(1, (lvl - 1) / 2));
+    if (step < 32) return;
+    if (pos % 2 === 0) this.bass(t, SONG.roots[name] + (pos % 4 === 2 ? 12 : 0), s16 * 1.7);
+    if (pos === 0 || pos === 8 || (pos === 10 && bar % 4 === 3)) this.kick(t);
+    if (pos === 4 || pos === 12) this.snare(t, 1);
+    else if (bar % 8 === 7 && pos >= 13) this.snare(t, 0.45);
+    if (pos % 2 === 0) this.hat(t, pos === 14);
+    else if (lvl >= 2) this.hat(t, false, 0.55);
+    if (bar >= 8) for (const [b, p, note, len] of SONG.lead) if (b === bar && p === pos) this.lead(t, note, len * s16 * 0.94);
+  },
+  pump() {
+    const c = this.ctx;
+    if (!c || !this.playing) return;
+    const now = c.currentTime;
+    if (this.next < now - 0.05) { const skip = Math.ceil((now - this.next) / this.s16); this.next += skip * this.s16; this.step += skip; }
+    while (this.next < now + 0.16) { this.play(this.step, this.next); this.step++; this.next += this.s16; }
+  },
+  start(c, dest) {
+    if (this.playing) return;
+    this.ctx = c; this.nodes = this.desk(c, dest); this.playing = true;
+    this.next = c.currentTime + 0.06; this.t0 = this.next - this.step * this.s16;
+    this.pump();
+    this.timer = setInterval(() => this.pump(), 25);
+  },
+  stop(fade = 0.25) {
+    if (!this.playing) return;
+    this.playing = false; clearInterval(this.timer); this.timer = null;
+    const n = this.nodes, t = this.ctx.currentTime;
+    this.nodes = null;
+    try { n.out.gain.cancelScheduledValues(t); n.out.gain.setValueAtTime(n.out.gain.value, t); n.out.gain.linearRampToValueAtTime(0, t + fade); } catch (e) { /* context closed */ }
+    setTimeout(() => { try { n.out.disconnect(); } catch (e) { /* already gone */ } }, (fade + 0.6) * 1000);
+    this.step = Math.ceil(this.step / 16) * 16;   // carry on from the next bar after a pause
+  },
+  // 1 on each beat, fading to 0 before the next: drives the light show. null when the music is off.
+  pulse() {
+    if (!this.playing) return null;
+    const c = this.ctx, lat = c.outputLatency || c.baseLatency || 0, b = (c.currentTime - lat - this.t0) / (this.s16 * 4);
+    return b < 0 ? 0 : Math.exp(-(b % 1) * 4.5);
+  },
+  chord() {
+    if (!this.playing) return SONG.chords.Am;
+    const bar = Math.floor(Math.max(0, this.ctx.currentTime - this.t0) / (this.s16 * 16)) % 16;
+    return SONG.chords[SONG.bars[bar]];
+  },
+  spectrum() {
+    const n = this.nodes;
+    if (!n) return null;
+    if (!this.fft || this.fft.length !== n.scope.frequencyBinCount) this.fft = new Uint8Array(n.scope.frequencyBinCount);
+    n.scope.getByteFrequencyData(this.fft);
+    return this.fft;
+  },
+  // Schedule the first `seconds` of the track on another context (the tests render it offline).
+  renderTo(c, seconds) {
+    const m = Object.create(Music);
+    m.ctx = c; m.nodes = m.desk(c, c.destination); m.intensity = 1;
+    let step = 0;
+    for (let t = 0.05; t < seconds; t += m.s16) m.play(step++, t);
+    return m;
+  },
+};
+
+// Neon Drop's sound effects, all in key with the soundtrack.
+const NeonFx = {
+  swish(S) {
+    const t = S.ctx.currentTime;
+    S.tone(1400, t, 0.13, { type: "square", vol: 0.03, f2: 360 });
+    S.tone(2800, t, 0.05, { type: "triangle", vol: 0.02, f2: 1400 });
+  },
+  whistle(S, d) {   // a falling whoosh for the length of the drop
+    const c = S.ctx, t = c.currentTime, src = c.createBufferSource(), bp = c.createBiquadFilter(), g = c.createGain();
+    src.buffer = S.noise; src.loop = true;
+    bp.type = "bandpass"; bp.Q.value = 5; bp.frequency.setValueAtTime(2600, t); bp.frequency.exponentialRampToValueAtTime(320, t + d);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.05, t + 0.08); g.gain.setValueAtTime(0.05, t + Math.max(0.1, d - 0.05)); g.gain.linearRampToValueAtTime(0, t + d);
+    src.connect(bp); bp.connect(g); g.connect(S.master);
+    src.start(t); src.stop(t + d + 0.05);
+    return { osc: src, g };
+  },
+  catch(S) {   // the basin swallows the cube
+    const c = S.ctx, t = c.currentTime, src = c.createBufferSource(), bp = c.createBiquadFilter(), g = c.createGain();
+    src.buffer = S.noise; bp.type = "bandpass"; bp.Q.value = 2.5;
+    bp.frequency.setValueAtTime(500, t); bp.frequency.exponentialRampToValueAtTime(4200, t + 0.18);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.14, t + 0.02); g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    src.connect(bp); bp.connect(g); g.connect(S.master); src.start(t, 0, 0.25);
+    S.tone(mtof(Music.chord()[0] - 12), t, 0.25, { type: "sine", vol: 0.16 });
+  },
+  chime(S) {   // the score: the chord of the moment, two octaves up
+    const t = S.ctx.currentTime + 0.03, ch = Music.chord();
+    [ch[0] + 24, ch[1] + 24, ch[2] + 24, ch[0] + 36].forEach((n, i) => S.tone(mtof(n), t + i * 0.06, 0.26 - i * 0.03, { type: "triangle", vol: 0.05 }));
+  },
+  bonus(S) {
+    const t = S.ctx.currentTime + 0.35, ch = Music.chord();
+    [ch[2] + 24, ch[0] + 36, ch[1] + 36, ch[2] + 36].forEach((n, i) => S.tone(mtof(n), t + i * 0.045, 0.07, { type: "square", vol: 0.028 }));
+  },
+  levelUp(S) {
+    const t = S.ctx.currentTime + 0.7, ch = Music.chord();
+    [ch[0], ch[1], ch[2], ch[0] + 12, ch[1] + 12, ch[2] + 12, ch[0] + 24].forEach((n, i) => S.tone(mtof(n + 12), t + i * 0.06, 0.12, { type: "square", vol: 0.035 }));
+  },
+  thud(S) {
+    const t = S.ctx.currentTime;
+    S.tone(110, t, 0.32, { type: "sine", vol: 0.26, f2: 36 });
+    S.tone(440, t, 0.25, { type: "square", vol: 0.025, f2: 70 });
+  },
+  glitch(S) {
+    const t = S.ctx.currentTime;
+    for (let i = 0; i < 7; i++) S.tone(rand(240, 2600), t + i * 0.03, 0.026, { type: "square", vol: 0.045 });
+  },
+  zap(S) {
+    const c = S.ctx, t = c.currentTime, o = c.createOscillator(), lfo = c.createOscillator(), lg = c.createGain(), bp = c.createBiquadFilter(), g = c.createGain();
+    o.type = "sawtooth"; o.frequency.setValueAtTime(2200, t); o.frequency.exponentialRampToValueAtTime(110, t + 0.38);
+    lfo.frequency.value = 32; lg.gain.value = 160; lfo.connect(lg); lg.connect(o.frequency);
+    bp.type = "bandpass"; bp.frequency.value = 1600; bp.Q.value = 0.7;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.07, t + 0.01); g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+    o.connect(bp); bp.connect(g); g.connect(S.master);
+    o.start(t); lfo.start(t); o.stop(t + 0.42); lfo.stop(t + 0.42);
+  },
+  powerDown(S) {   // game over: everything winds down
+    const c = S.ctx, t = c.currentTime + 0.05, o = c.createOscillator(), lp = c.createBiquadFilter(), g = c.createGain();
+    o.type = "sawtooth"; o.frequency.setValueAtTime(330, t); o.frequency.exponentialRampToValueAtTime(28, t + 1.5);
+    lp.type = "lowpass"; lp.frequency.setValueAtTime(3000, t); lp.frequency.exponentialRampToValueAtTime(120, t + 1.5);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.09, t + 0.03); g.gain.setValueAtTime(0.09, t + 1); g.gain.exponentialRampToValueAtTime(0.001, t + 1.6);
+    o.connect(lp); lp.connect(g); g.connect(S.master); o.start(t); o.stop(t + 1.65);
+  },
+};
+
+/* ------------------------------------------------------------------ Neon Drop: the synthwave renderer */
+// The Stunt Show as abstract neon art: a glider drops a wireframe cube into a light-catcher that slides along a
+// perspective grid under a striped sun. Same world units, timing and hit boxes as the 1-bit game: the catcher's
+// blue basin is the hay (rel 1 to 42), its red core is the driver (42 to 52) and its drive pod is the horse (52 to 82).
+const HORIZON = 228, LAND_TOP = 150, SUN_R = 54;
+const PINK = [255, 113, 206], CYAN = [1, 205, 254], MINT = [5, 255, 161], VIOLET = [185, 103, 255], LEMON = [255, 251, 150], HOT = [255, 46, 99], AMBER = [255, 158, 61];
+const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+const tint = c => [Math.min(255, c[0] + 110), Math.min(255, c[1] + 110), Math.min(255, c[2] + 110)];
+const CUBE_V = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]];
+const CUBE_E = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
+const PACE_NEON = ["", "CRUISE", "BOOST", "HYPER"];
+const ND_FONT = '"Silkscreen", ui-monospace, Menlo, monospace';
+const nd = { key: "", kx: 1, ky: 1, sky: null, sun: null, land: null, clouds: [], twinkle: [] };
+
+function ndBlit(g, img, x, y) {
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.drawImage(img.c, (x - img.pad) * nd.kx, (y - img.pad) * nd.ky);
+  g.setTransform(nd.kx, 0, 0, nd.ky, 0, 0);
+}
+
+/* ---- scenery, cached per screen size */
+function ndSun() {
+  const R = SUN_R, m = 34, kx = nd.kx, ky = nd.ky;
+  const c = hdCanvas((R + m) * 2 * kx, (R + m + 4) * ky), g = c.getContext("2d");
+  g.setTransform(kx, 0, 0, ky, (R + m) * kx, (R + m) * ky);   // origin at the sun's centre
+  const halo = g.createRadialGradient(0, 0, R * 0.8, 0, 0, R + m);
+  halo.addColorStop(0, "rgba(255,90,170,0.45)"); halo.addColorStop(1, "rgba(255,60,150,0)");
+  g.fillStyle = halo; g.fillRect(-R - m, -R - m, (R + m) * 2, R + m + 4);
+  g.save(); g.beginPath(); g.arc(0, 0, R, Math.PI, TAU); g.lineTo(R, 4); g.lineTo(-R, 4); g.closePath(); g.clip();
+  g.fillStyle = lgrad(g, 0, -R, 0, 0, [[0, "#fff6a8"], [0.35, "#ffc457"], [0.7, "#ff7a5c"], [1, "#ff2e8e"]]);
+  g.fillRect(-R, -R, R * 2, R + 4);
+  g.globalCompositeOperation = "destination-out";   // the slits, widening toward the horizon
+  for (let i = 0; i < 7; i++) g.fillRect(-R, -R * 0.56 + i * R * 0.085 + i * i * 0.35, R * 2, 0.7 + i * 0.55);
+  g.restore();
+  return { c, pad: R + m };
+}
+function ndLand() {
+  const kx = nd.kx, ky = nd.ky, c = hdCanvas(W * kx, (PANEL_Y - LAND_TOP) * ky), g = c.getContext("2d");
+  g.setTransform(kx, 0, 0, ky, 0, -LAND_TOP * ky);
+  const tri = (x, p) => { const u = ((x / p) % 1 + 1) % 1; return 1 - Math.abs(u * 2 - 1); };
+  const valley = x => clamp(Math.abs(x - W / 2) / (W * 0.2) - 0.25, 0.06, 1);   // low in the middle, where the sun sits
+  const ridge = (f, fill, edge) => {
+    g.beginPath(); g.moveTo(-2, HORIZON + 1);
+    for (let x = -2; x <= W + 2; x += 2) g.lineTo(x, f(x));
+    g.lineTo(W + 2, HORIZON + 1); g.closePath();
+    g.fillStyle = fill; g.fill();
+    g.beginPath(); for (let x = -2; x <= W + 2; x += 2) (x < 0 ? g.moveTo(x, f(x)) : g.lineTo(x, f(x)));
+    g.lineJoin = "round"; g.globalCompositeOperation = "lighter";
+    g.strokeStyle = rgba(edge, 0.3); g.lineWidth = 2.4; g.stroke();
+    g.strokeStyle = rgba(tint(edge), 0.9); g.lineWidth = 0.6; g.stroke();
+    g.globalCompositeOperation = "source-over";
+  };
+  ridge(x => HORIZON - valley(x) * (14 + 26 * tri(x + 37, 71) * (0.55 + 0.45 * tri(x + 13, 173)) + 6 * tri(x + 5, 19)),
+    lgrad(g, 0, HORIZON - 46, 0, HORIZON, [[0, "#2a0a4f"], [1, "#160433"]]), VIOLET);
+  ridge(x => HORIZON - valley(x) * (6 + 14 * tri(x + 91, 53) + 4 * tri(x + 2, 13)),
+    lgrad(g, 0, HORIZON - 24, 0, HORIZON, [[0, "#1a0533"], [1, "#0c0220"]]), PINK);
+  // the floor and its fixed grid lines, running to the vanishing point
+  g.fillStyle = lgrad(g, 0, HORIZON, 0, PANEL_Y, [[0, "#2c0648"], [0.3, "#16022c"], [1, "#07010f"]]);
+  g.fillRect(0, HORIZON, W, PANEL_Y - HORIZON);
+  const glow = g.createRadialGradient(W / 2, HORIZON, 0, W / 2, HORIZON, 70);
+  glow.addColorStop(0, "rgba(255,80,160,0.35)"); glow.addColorStop(1, "rgba(255,80,160,0)");
+  g.fillStyle = glow; g.fillRect(0, HORIZON, W, 70);
+  g.save(); g.beginPath(); g.rect(0, HORIZON, W, PANEL_Y - HORIZON); g.clip();
+  const vx = W / 2, depth = PANEL_Y - HORIZON;
+  g.beginPath();
+  for (let i = -40; i <= 40; i++) { const xb = vx + i * 22; g.moveTo(vx + (xb - vx) * 0.03, HORIZON + depth * 0.03); g.lineTo(xb, PANEL_Y); }
+  g.globalCompositeOperation = "lighter";
+  g.strokeStyle = lgrad(g, 0, HORIZON, 0, PANEL_Y, [[0, "rgba(255,113,206,0)"], [0.3, "rgba(255,113,206,0.12)"], [1, "rgba(255,113,206,0.35)"]]);
+  g.lineWidth = 2.2; g.stroke();
+  g.strokeStyle = lgrad(g, 0, HORIZON, 0, PANEL_Y, [[0, "rgba(255,190,235,0)"], [0.3, "rgba(255,190,235,0.35)"], [1, "rgba(255,190,235,0.85)"]]);
+  g.lineWidth = 0.55; g.stroke();
+  g.restore();
+  g.globalCompositeOperation = "lighter";
+  g.fillStyle = lgrad(g, 0, HORIZON - 5, 0, HORIZON + 5, [[0, "rgba(255,46,142,0)"], [0.5, "rgba(255,120,190,0.85)"], [1, "rgba(255,46,142,0)"]]);
+  g.fillRect(0, HORIZON - 5, W, 10);
+  g.globalCompositeOperation = "source-over";
+  return c;
+}
+function ndCloud(sh) {
+  const pad = 6, kx = nd.kx, ky = nd.ky;
+  const c = hdCanvas((sh.w + pad * 2) * kx, (sh.h + pad * 2) * ky), g = c.getContext("2d");
+  g.setTransform(kx, 0, 0, ky, pad * kx, pad * ky);
+  const union = grow => { g.beginPath(); for (const [x, y, r] of sh.c) { g.moveTo(x + r + grow, y); g.arc(x, y, r + grow, 0, TAU); } };
+  union(3.2); g.fillStyle = rgba(CYAN, 0.16); g.fill();
+  union(1.6); g.fillStyle = rgba(CYAN, 0.35); g.fill();
+  union(0.7); g.fillStyle = "#c4f5ff"; g.fill();
+  g.globalCompositeOperation = "destination-out"; union(0); g.fill(); g.globalCompositeOperation = "source-over";
+  union(0); g.fillStyle = lgrad(g, 0, 0, 0, sh.h, [[0, "rgba(72,22,124,0.8)"], [1, "rgba(30,8,64,0.86)"]]); g.fill();
+  g.save(); union(0); g.clip();
+  g.fillStyle = rgba(VIOLET, 0.16);
+  for (let y = 0; y < sh.h; y += 2.6) g.fillRect(0, y, sh.w, 0.8);
+  for (const [x, y, r] of sh.c) {
+    const gr = g.createRadialGradient(x - r * 0.3, y - r * 0.4, 0, x, y, r);
+    gr.addColorStop(0, rgba(PINK, 0.22)); gr.addColorStop(1, rgba(PINK, 0));
+    g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
+  }
+  g.restore();
+  return { c, pad };
+}
+function ndBuild() {
+  const key = screen.width + "x" + screen.height + ":" + W;
+  if (nd.key === key) return;
+  nd.key = key;
+  const kx = nd.kx = screen.width / W, ky = nd.ky = screen.height / H;
+  const sky = hdCanvas(screen.width, screen.height), g = sky.getContext("2d");
+  g.setTransform(kx, 0, 0, ky, 0, 0);
+  g.fillStyle = lgrad(g, 0, 0, 0, HORIZON, [[0, "#05010f"], [0.4, "#170536"], [0.75, "#3d0d63"], [1, "#9c1f74"]]);
+  g.fillRect(0, 0, W, HORIZON + 1);
+  const rnd = seq(41);
+  for (let i = 0; i < W * 0.25; i++) {
+    const x = rnd() * W, y = Math.pow(rnd(), 1.3) * (HORIZON - 70), s = rnd() < 0.12 ? 1.1 : 0.55;
+    g.fillStyle = `rgba(${rnd() < 0.3 ? "255,180,240" : "220,235,255"},${0.2 + rnd() * 0.6})`; g.fillRect(x, y, s, s);
+  }
+  nd.twinkle = [];
+  for (let i = 0; i < 9; i++) nd.twinkle.push([rnd() * W, 6 + rnd() * (HORIZON - 90), rnd() * TAU]);
+  g.fillStyle = "rgba(0,0,0,0.16)";
+  for (let y = 0; y < HORIZON; y += 2.4) g.fillRect(0, y, W, 0.7);
+  g.fillStyle = lgrad(g, 0, PANEL_Y, 0, H, [[0, "#140330"], [1, "#06010f"]]); g.fillRect(0, PANEL_Y, W, PANEL_H);
+  nd.sky = sky;
+  nd.sun = ndSun();
+  nd.land = ndLand();
+  nd.clouds = CLOUD_SHAPES.map(ndCloud);
+}
+// The floor's cross lines roll toward you, faster as the catcher speeds up.
+function ndGrid(g, gt, pulse) {
+  const depth = PANEL_Y - HORIZON, phase = (gt * 0.016) % 1;
+  g.globalCompositeOperation = "lighter";
+  for (let i = 0; i < 18; i++) {
+    const z = 1 + (i + 1 - phase) * 0.6, y = HORIZON + depth / z;
+    if (y > PANEL_Y) continue;
+    const a = Math.min(1, 1.5 / z) * (0.6 + 0.25 * pulse);
+    g.beginPath(); g.moveTo(0, y); g.lineTo(W, y);
+    g.strokeStyle = rgba(PINK, a * 0.28); g.lineWidth = 0.6 + 2.2 / z; g.stroke();
+    g.strokeStyle = `rgba(255,200,238,${a})`; g.lineWidth = 0.45 + 0.35 / z; g.stroke();
+  }
+  g.fillStyle = rgba(PINK, 0.3 * pulse); g.fillRect(0, HORIZON - 1, W, 2);
+  g.globalCompositeOperation = "source-over";
+}
+
+/* ---- the pieces */
+function ndCube(g, x, y, s, a, b, c) {
+  const ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b);
+  const P = CUBE_V.map(([vx, vy, vz]) => { const x1 = vx * ca + vz * sa, z1 = vz * ca - vx * sa; return [x + x1 * s, y + (vy * cb - z1 * sb) * s]; });
+  g.globalCompositeOperation = "lighter";
+  const glow = g.createRadialGradient(x, y, 0, x, y, s * 2.8);
+  glow.addColorStop(0, rgba(c, 0.5)); glow.addColorStop(1, rgba(c, 0));
+  g.fillStyle = glow; g.fillRect(x - s * 2.8, y - s * 2.8, s * 5.6, s * 5.6);
+  g.beginPath();
+  for (const [i, j] of CUBE_E) { g.moveTo(P[i][0], P[i][1]); g.lineTo(P[j][0], P[j][1]); }
+  g.lineJoin = "round"; g.lineCap = "round";
+  g.strokeStyle = rgba(c, 0.42); g.lineWidth = 2.4; g.stroke();
+  g.strokeStyle = rgba(tint(c), 1); g.lineWidth = 0.75; g.stroke();
+  g.globalCompositeOperation = "source-over";
+}
+function ndCraft(g, x, y, t, dh, pulse) {
+  if (Math.abs(dh) > 0.5) {   // a light trail behind the glider
+    const dir = Math.sign(dh), len = Math.min(70, Math.abs(dh) * 16), x0 = dir > 0 ? x + 6 : x + 62;
+    g.globalCompositeOperation = "lighter";
+    g.fillStyle = lgrad(g, x0, 0, x0 - dir * len, 0, [[0, rgba(CYAN, 0.55)], [1, rgba(CYAN, 0)]]);
+    g.fillRect(Math.min(x0, x0 - dir * len), y + 8.6, len, 2.8);
+    g.globalCompositeOperation = "source-over";
+  }
+  g.save(); g.translate(x + 34, y + 10); g.rotate(clamp(dh, -4, 4) * 0.03); g.translate(-34, -10);
+  const hull = () => { g.beginPath(); g.moveTo(3, 10); g.lineTo(17, 3.5); g.lineTo(51, 3.5); g.lineTo(65, 10); g.lineTo(51, 16); g.lineTo(17, 16); g.closePath(); };
+  hull(); g.fillStyle = lgrad(g, 0, 3.5, 0, 16, [[0, "#1d2c60"], [0.5, "#0b102c"], [1, "#050716"]]); g.fill();
+  g.globalCompositeOperation = "lighter"; g.lineJoin = "round";
+  hull(); g.strokeStyle = rgba(CYAN, 0.38); g.lineWidth = 2.6; g.stroke();
+  g.strokeStyle = "#c9f6ff"; g.lineWidth = 0.7; g.stroke();
+  g.beginPath(); g.moveTo(24, 3.5); g.lineTo(29, -0.5); g.lineTo(41, -0.5); g.lineTo(46, 3.5); g.closePath();
+  g.fillStyle = rgba(PINK, 0.32); g.fill(); g.strokeStyle = rgba(tint(PINK), 0.95); g.lineWidth = 0.6; g.stroke();
+  const sweep = (t * 1.6) % 60;   // a light running nose to tail
+  g.fillStyle = rgba(PINK, 0.45); g.fillRect(8, 9.6, 50, 0.8);
+  g.fillStyle = lgrad(g, sweep - 4, 0, sweep + 16, 0, [[0, rgba(PINK, 0)], [0.5, "rgba(255,200,240,0.95)"], [1, rgba(PINK, 0)]]);
+  g.fillRect(8, 9.3, 50, 1.4);
+  const e = 0.6 + 0.4 * Math.sin(t * 0.25);   // the emitter that holds the cube
+  g.fillStyle = rgba(MINT, 0.5 * e); g.beginPath(); g.ellipse(46, 16.4, 5, 1.6, 0, 0, TAU); g.fill();
+  g.fillStyle = "#d9fff0"; g.beginPath(); g.ellipse(46, 16.2, 2, 0.7, 0, 0, TAU); g.fill();
+  g.fillStyle = rgba(CYAN, 0.5 + 0.3 * pulse); g.beginPath(); g.arc(3.5, 10, 1.6, 0, TAU); g.moveTo(66.1, 10); g.arc(64.5, 10, 1.6, 0, TAU); g.fill();
+  g.globalCompositeOperation = "source-over";
+  g.restore();
+}
+function ndHang(g, x, y, t) {
+  const cx = x + 7, cy = y + 8;
+  g.globalCompositeOperation = "lighter";
+  g.beginPath(); g.moveTo(cx, y - 2.8); g.lineTo(cx, cy - 4);
+  g.strokeStyle = rgba(MINT, 0.35 + 0.25 * Math.sin(t * 0.9)); g.lineWidth = 1.6; g.stroke();
+  g.strokeStyle = "rgba(220,255,240,0.9)"; g.lineWidth = 0.4; g.stroke();
+  g.globalCompositeOperation = "source-over";
+  ndCube(g, cx, cy, 3.9, t * 0.05, 0.55 + 0.15 * Math.sin(t * 0.04), PINK);
+}
+function ndFall(g, x, y, f, tumble) {
+  const cx = x + 7, cy = y + 9;
+  g.globalCompositeOperation = "lighter";
+  g.fillStyle = lgrad(g, 0, cy - 24, 0, cy, [[0, rgba(PINK, 0)], [1, rgba(PINK, 0.45)]]);
+  g.fillRect(cx - 1.4, cy - 24, 2.8, 22);
+  g.globalCompositeOperation = "source-over";
+  ndCube(g, cx, cy, 3.9, f * 0.2, f * 0.13 + 0.4, tumble ? AMBER : PINK);
+}
+function ndBasin(g, wx) { g.beginPath(); g.moveTo(wx + 0.5, HAY_TOP + 1); g.lineTo(wx + 41.5, HAY_TOP + 1); g.lineTo(wx + 37.5, GROUND - 3); g.lineTo(wx + 4.5, GROUND - 3); g.closePath(); }
+function ndCore(g, x, y, pulse) {
+  const daze = G.driverDaze > 0 || (G.overReason === "driver" && (G.overPending || G.phase === "over")), s = 4.6 * (1 + 0.08 * pulse);
+  const dia = (dx, dy) => { g.beginPath(); g.moveTo(x + dx, y + dy - s); g.lineTo(x + dx + s, y + dy); g.lineTo(x + dx, y + dy + s); g.lineTo(x + dx - s, y + dy); g.closePath(); };
+  g.globalCompositeOperation = "lighter";
+  if (daze) {   // glitch: colour-split copies and stray blocks
+    const j = (G.tick * 7) % 5 - 2;
+    dia(-1.8 + j * 0.3, 0); g.fillStyle = rgba(CYAN, 0.55); g.fill();
+    dia(1.8, -j * 0.3); g.fillStyle = rgba(HOT, 0.55); g.fill();
+    for (let i = 0; i < 4; i++) {
+      const h = hash(G.tick >> 1, i);
+      g.fillStyle = rgba(i % 2 ? CYAN : PINK, 0.85);
+      g.fillRect(x - 10 + (h % 20), y - 10 + ((h >> 5) % 20), 2 + ((h >> 10) % 5), 0.9);
+    }
+  }
+  const halo = g.createRadialGradient(x, y, 0, x, y, s * 2.4);
+  halo.addColorStop(0, rgba(AMBER, 0.6)); halo.addColorStop(1, rgba(AMBER, 0));
+  g.fillStyle = halo; g.fillRect(x - s * 2.4, y - s * 2.4, s * 4.8, s * 4.8);
+  g.globalCompositeOperation = "source-over";
+  dia(0, 0);
+  const core = g.createRadialGradient(x, y, 0, x, y, s);
+  core.addColorStop(0, "#fff3d6"); core.addColorStop(0.5, "#ff9e3d"); core.addColorStop(1, "rgba(255,46,99,0.95)");
+  g.fillStyle = daze && (G.tick & 2) ? "rgba(255,255,255,0.9)" : core; g.fill();
+  g.globalCompositeOperation = "lighter";
+  g.strokeStyle = rgba(HOT, 0.6); g.lineWidth = 1.6; g.stroke();
+  g.globalCompositeOperation = "source-over";
+}
+function ndPod(g, wx, t) {
+  const rear = G.horseRear > 0, moving = G.wagon.moving && G.wagon.stopT === 0;
+  g.save(); g.translate(wx, 0);
+  if (rear) { g.translate(56, 290); g.rotate(-0.38 * Math.min(1, G.horseRear / 10)); g.translate(-56, -290); }
+  const pod = () => { g.beginPath(); g.moveTo(52.5, 271); g.lineTo(69, 271); g.lineTo(81.5, 280.5); g.lineTo(69, 290); g.lineTo(52.5, 290); g.lineTo(58.5, 280.5); g.closePath(); };
+  pod(); g.fillStyle = lgrad(g, 52, 0, 82, 0, [[0, "#1a0420"], [1, "#4a0a33"]]); g.fill();
+  g.save(); pod(); g.clip();
+  g.globalCompositeOperation = "lighter"; g.lineWidth = 1.4; g.strokeStyle = rgba(HOT, 0.5);
+  const off = (t * (moving ? 0.9 : 0.12)) % 8;   // chevrons sweeping forward
+  g.beginPath();
+  for (let i = -1; i < 4; i++) { const x0 = 55 + i * 8 + off; g.moveTo(x0, 272.5); g.lineTo(x0 + 4, 280.5); g.lineTo(x0, 288.5); }
+  g.stroke();
+  g.restore();
+  g.globalCompositeOperation = "lighter"; g.lineJoin = "round";
+  pod(); g.strokeStyle = rgba(HOT, 0.48); g.lineWidth = 2.8; g.stroke();
+  g.strokeStyle = "#ffc2d4"; g.lineWidth = 0.7; g.stroke();
+  g.fillStyle = rear && (G.tick & 2) ? "#ffffff" : rgba(CYAN, 0.95); g.fillRect(72, 279.6, 5.5, 1.8);
+  if (rear) {   // crackling with static
+    g.strokeStyle = rgba(LEMON, 0.9); g.lineWidth = 0.6;
+    for (let k = 0; k < 2; k++) {
+      g.beginPath(); let px = 60 + k * 12, py = 271;
+      g.moveTo(px, py);
+      for (let s = 0; s < 4; s++) { const h = hash((G.tick >> 1) + k * 7, s); px += (h % 7) - 3; py -= 2 + (h >> 4) % 3; g.lineTo(px, py); }
+      g.stroke();
+    }
+  }
+  g.globalCompositeOperation = "source-over";
+  g.restore();
+}
+function ndRig(g, wx, t, pulse) {
+  const top = HAY_TOP + 1, bot = GROUND - 3, mid = 280.5;
+  g.globalCompositeOperation = "lighter";
+  g.fillStyle = lgrad(g, wx - 200, 0, wx + 4, 0, [[0, rgba(CYAN, 0)], [1, rgba(CYAN, 0.9)]]);   // its trail on the floor
+  g.fillRect(wx - 200, GROUND - 1.4, 204, 1.2);
+  g.fillStyle = lgrad(g, wx - 200, 0, wx + 4, 0, [[0, rgba(CYAN, 0)], [1, rgba(CYAN, 0.22)]]);
+  g.fillRect(wx - 200, GROUND - 3.6, 204, 5.6);
+  g.save(); g.translate(wx + 41, GROUND + 0.5); g.scale(1, 0.09);   // hover glow
+  const hov = g.createRadialGradient(0, 0, 0, 0, 0, 46);
+  hov.addColorStop(0, rgba(CYAN, 0.5)); hov.addColorStop(1, rgba(CYAN, 0));
+  g.fillStyle = hov; g.beginPath(); g.arc(0, 0, 46, 0, TAU); g.fill();
+  g.restore();
+  g.globalCompositeOperation = "source-over";
+  ndBasin(g, wx); g.fillStyle = lgrad(g, 0, top, 0, bot, [[0, rgba(CYAN, 0.06)], [1, rgba(CYAN, 0.32)]]); g.fill();
+  g.save(); ndBasin(g, wx); g.clip();
+  g.globalCompositeOperation = "lighter"; g.lineWidth = 0.6;
+  for (let k = 0; k < 3; k++) {   // the energy inside it
+    const yy = top + 6 + k * 4;
+    g.beginPath();
+    for (let x = 0; x <= 42; x += 2) { const y = yy + Math.sin(x * 0.33 + t * 0.13 + k * 1.9) * 1.2; x ? g.lineTo(wx + x, y) : g.moveTo(wx + x, y); }
+    g.strokeStyle = rgba(MINT, 0.42 - k * 0.1); g.stroke();
+  }
+  g.restore();
+  g.globalCompositeOperation = "lighter"; g.lineJoin = "round";
+  ndBasin(g, wx); g.strokeStyle = rgba(CYAN, 0.42); g.lineWidth = 2.8; g.stroke();
+  g.strokeStyle = "#c9f6ff"; g.lineWidth = 0.7; g.stroke();
+  g.beginPath(); g.moveTo(wx + 0.5, top); g.lineTo(wx + 41.5, top);
+  g.strokeStyle = rgba([255, 255, 255], 0.55 + 0.4 * pulse); g.lineWidth = 0.9; g.stroke();
+  g.beginPath(); g.moveTo(wx + 40, mid); g.lineTo(wx + 58, mid);
+  g.strokeStyle = rgba(AMBER, 0.55); g.lineWidth = 1.4; g.stroke();
+  g.globalCompositeOperation = "source-over";
+  ndCore(g, wx + 47, mid - 1.5, pulse);
+  ndPod(g, wx, t);
+}
+// Cubes that made it: settled in the basin, turned green.
+function ndRiders(g, wx, t) {
+  if (!G.riders.length) return;
+  g.save(); ndBasin(g, wx); g.clip();
+  for (const r of G.riders) {
+    const k = Math.min(1, r.t / 9), settle = 1 - Math.pow(1 - k, 3);
+    ndCube(g, wx + r.off, HAY_TOP + 2 + settle * 8.5 + Math.sin(t * 0.08 + r.off) * 0.6, 3.1, t * 0.03 + r.off, 0.6, MINT);
+  }
+  g.restore();
+  g.globalCompositeOperation = "lighter";
+  for (const r of G.riders) {
+    if (r.t >= 10) continue;
+    const a = 1 - r.t / 10;
+    g.beginPath(); g.ellipse(wx + r.off, HAY_TOP + 1, 2 + r.t * 1.6, 0.8 + r.t * 0.25, 0, 0, TAU);
+    g.strokeStyle = rgba(MINT, a); g.lineWidth = 1; g.stroke();
+  }
+  g.globalCompositeOperation = "source-over";
+}
+// Cubes that missed: a flash on the floor and a scatter of fading shards.
+function ndGroundie(g, gm, x) {
+  const t = gm.t, cx = x + 7;
+  if (t > 84) return;
+  const a = 1 - t / 84;
+  g.globalCompositeOperation = "lighter";
+  if (t < 10) {
+    const r = 2 + t * 2.4;
+    g.beginPath(); g.ellipse(cx, GROUND - 0.5, r, r * 0.22, 0, 0, TAU);
+    g.strokeStyle = rgba(PINK, 0.9 * (1 - t / 10)); g.lineWidth = 1.2; g.stroke();
+  }
+  g.fillStyle = rgba(PINK, 0.35 * a); g.beginPath(); g.ellipse(cx, GROUND - 0.6, 6, 1.1, 0, 0, TAU); g.fill();
+  const spread = Math.min(1, t / 8);
+  for (let i = 0; i < 6; i++) {
+    const h = hash(Math.round(x * 3) + i, 11), s = 1 + ((h >> 8) % 3) * 0.5;
+    g.fillStyle = rgba(i % 2 ? PINK : VIOLET, a);
+    g.fillRect(cx + ((h % 200) / 200 - 0.5) * 16 * spread - s / 2, GROUND - 1.5 - s - ((h >> 12) % 3), s, s);
+  }
+  g.globalCompositeOperation = "source-over";
+}
+function ndParticles(g) {
+  g.globalCompositeOperation = "lighter";
+  for (const p of G.parts) {
+    const a = Math.max(0, 1 - p.t / p.life);
+    if (p.k === "straw") {
+      g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x - p.vx * 1.8, p.y - p.vy * 1.8);
+      g.strokeStyle = rgba(p.t & 1 ? MINT : CYAN, a); g.lineWidth = 0.8; g.stroke();
+    } else if (p.k === "dust") {
+      g.fillStyle = rgba(PINK, a * 0.8); g.fillRect(p.x - 0.7, p.y - 0.7, 1.4, 1.4);
+    } else if (p.k === "hat") {
+      g.save(); g.translate(p.x, p.y); g.rotate(p.vx ? p.t * 0.3 : 0.4);
+      g.fillStyle = rgba(AMBER, Math.min(1, a * 2));
+      g.beginPath(); g.moveTo(0, -2.2); g.lineTo(2, 1.6); g.lineTo(-2, 1.6); g.closePath(); g.fill();
+      g.restore();
+    }
+  }
+  g.globalCompositeOperation = "source-over";
+}
+
+/* ---- type, HUD, overlays */
+function ndText(g, str, x, y, size, c, alpha = 1) {
+  if (alpha <= 0) return;
+  g.save(); g.globalAlpha = Math.min(1, alpha);
+  g.font = `700 ${size}px ${ND_FONT}`; g.textAlign = "center"; g.textBaseline = "middle"; g.lineJoin = "round";
+  const w = g.measureText(str).width;
+  x = clamp(x, w / 2 + 3, W - w / 2 - 3);
+  g.lineWidth = size * 0.2; g.strokeStyle = "rgba(8,0,22,0.85)"; g.strokeText(str, x, y);
+  g.globalCompositeOperation = "lighter";
+  g.lineWidth = size * 0.5; g.strokeStyle = rgba(c, 0.25); g.strokeText(str, x, y);
+  g.globalCompositeOperation = "source-over";
+  g.fillStyle = rgba(c, 1); g.fillText(str, x, y);
+  g.restore();
+}
+const ndPopColor = s => (s.startsWith("+") ? LEMON : s.startsWith("CLOUD") ? VIOLET : s.startsWith("NEW") ? PINK
+  : s === "GLITCH!" || s === "ZAP!" ? AMBER : s === "MISS!" ? HOT : CYAN);
+function ndBanner(g, b) {
+  const a = b.t > b.life - 16 ? (b.life - b.t) / 16 : Math.min(1, b.t / 8);
+  if (a <= 0) return;
+  g.save(); g.globalAlpha = a;
+  g.textAlign = "center"; g.textBaseline = "middle"; g.lineJoin = "round";
+  g.font = `700 26px ${ND_FONT}`;
+  const x = W / 2, y = 90, w = g.measureText(b.text).width, size = w > W - 16 ? 26 * (W - 16) / w : 26;
+  g.font = `700 ${size}px ${ND_FONT}`;
+  g.globalCompositeOperation = "lighter";
+  g.lineWidth = 10; g.strokeStyle = rgba(PINK, 0.2); g.strokeText(b.text, x, y);
+  g.lineWidth = 4; g.strokeStyle = rgba(PINK, 0.45); g.strokeText(b.text, x, y);
+  g.globalCompositeOperation = "source-over";
+  g.fillStyle = lgrad(g, 0, y - size * 0.45, 0, y + size * 0.45, [[0, "#c9f6ff"], [0.48, "#ffffff"], [0.52, "#ff9be0"], [1, "#ff2e8e"]]);
+  g.fillText(b.text, x, y);
+  g.font = `400 8px ${ND_FONT}`;
+  g.lineWidth = 2; g.strokeStyle = "rgba(8,0,22,0.8)"; g.strokeText(b.sub, x, y + 24);
+  g.fillStyle = rgba(CYAN, 1); g.fillText(b.sub, x, y + 24);
+  g.restore();
+}
+function ndStick(g) {
+  if (G.phase !== "play") return;
+  const t = input.touch;
+  g.globalCompositeOperation = "lighter";
+  if (t && t.onStage) {
+    const r = screen.getBoundingClientRect();
+    const ox = (t.ox - r.left) / scale, oy = (t.oy - r.top) / scale, R = STICK_R / scale;
+    g.beginPath(); g.arc(ox, oy, R, 0, TAU); g.strokeStyle = rgba(CYAN, 0.6); g.lineWidth = 1.2; g.stroke();
+    g.beginPath(); g.arc(ox + t.sx * R, oy + t.sy * R, 4.5, 0, TAU); g.fillStyle = rgba(PINK, 0.8); g.fill();
+  } else if (app.classList.contains("mouse") && input.mouse.active && !input.keys.size) {
+    g.beginPath(); g.moveTo(W / 2 - 5, 150); g.lineTo(W / 2 + 5, 150); g.moveTo(W / 2, 145); g.lineTo(W / 2, 155);
+    g.strokeStyle = rgba(CYAN, 0.75); g.lineWidth = 0.8; g.stroke();
+  }
+  g.globalCompositeOperation = "source-over";
+}
+// A light meter driven by the soundtrack.
+function ndMeter(g, x0, x1, top, bottom) {
+  const n = Math.floor((x1 - x0) / 7);
+  if (n < 5) return;
+  const gap = 1.6, bw = (x1 - x0 - gap * (n - 1)) / n, data = store.sound ? Music.spectrum() : null;
+  g.globalCompositeOperation = "lighter";
+  g.fillStyle = lgrad(g, 0, bottom, 0, top, [[0, rgba(CYAN, 0.9)], [0.6, rgba(VIOLET, 0.9)], [1, rgba(PINK, 0.95)]]);
+  for (let i = 0; i < n; i++) {
+    let v = 0.04;
+    if (data) {
+      const lo = Math.floor(1.6 * Math.pow(37.5, i / n)), hi = Math.max(lo + 1, Math.floor(1.6 * Math.pow(37.5, (i + 1) / n)));
+      let s = 0;
+      for (let j = lo; j < hi && j < data.length; j++) s = Math.max(s, data[j]);
+      v = s / 255;
+    }
+    const h = Math.max(1.6, v * (bottom - top)), x = x0 + i * (bw + gap);
+    for (let y = bottom - 1.6; y >= bottom - h; y -= 2.4) g.fillRect(x, y, bw, 1.6);
+  }
+  g.globalCompositeOperation = "source-over";
+}
+function ndHUD(g, cy, pulse) {
+  const y0 = PANEL_Y;
+  g.globalCompositeOperation = "lighter";
+  g.fillStyle = rgba(PINK, 0.45 + 0.35 * pulse); g.fillRect(0, y0, W, 0.7);
+  g.fillStyle = rgba(PINK, 0.1 + 0.08 * pulse); g.fillRect(0, y0 + 0.7, W, 3);
+  for (let i = 0; i < 5; i++) {   // this level's five drops
+    const x = 10 + i * 11, y = y0 + 18.5, r = G.slots[i], cur = i === G.slots.length && G.phase === "play" && !G.overPending;
+    const col = r === true ? MINT : r === false ? HOT : cur ? PINK : [130, 110, 180], a = r === undefined && !cur ? 0.55 : 1;
+    g.strokeStyle = rgba(col, 0.3 * a); g.lineWidth = 2.4; g.strokeRect(x - 3.6, y - 3.6, 7.2, 7.2);
+    g.strokeStyle = rgba(tint(col), a); g.lineWidth = 0.7; g.strokeRect(x - 3.6, y - 3.6, 7.2, 7.2);
+    if (r === true) { g.fillStyle = rgba(MINT, 0.55); g.fillRect(x - 2.4, y - 2.4, 4.8, 4.8); }
+    else if (r === false) { g.beginPath(); g.moveTo(x - 2.2, y - 2.2); g.lineTo(x + 2.2, y + 2.2); g.moveTo(x + 2.2, y - 2.2); g.lineTo(x - 2.2, y + 2.2); g.stroke(); }
+    else if (cur) { g.fillStyle = rgba(PINK, 0.35 + 0.4 * pulse); g.fillRect(x - 2.4, y - 2.4, 4.8, 4.8); }
+  }
+  g.globalCompositeOperation = "source-over";
+  const vf = `700 12px ${ND_FONT}`, lf = `400 6px ${ND_FONT}`;
+  const label = (s, x, al) => { g.font = lf; g.textAlign = al; g.textBaseline = "alphabetic"; g.fillStyle = "#9d86d9"; g.fillText(s, x, y0 + 12); };
+  const value = (s, x, al, c) => {
+    g.font = vf; g.textAlign = al; g.textBaseline = "alphabetic";
+    g.globalCompositeOperation = "lighter"; g.lineWidth = 2.6; g.lineJoin = "round"; g.strokeStyle = rgba(c, 0.18); g.strokeText(s, x, y0 + 29);
+    g.globalCompositeOperation = "source-over"; g.fillStyle = rgba(c, 1); g.fillText(s, x, y0 + 29);
+  };
+  g.font = vf;
+  const w6 = g.measureText("000000").width, w3 = g.measureText("000").width, w2 = g.measureText("00").width;
+  const xs = 70, xh = xs + w6 + 12, xr = W - 8, xl = xr - w3 - 14;
+  label("SCORE", xs, "left"); value(pad(G.score, 6), xs, "left", CYAN);
+  label("HIGH", xh, "left"); value(pad(Math.max(topScore(boardOf(G.mode)), G.score), 6), xh, "left", LEMON);
+  label("LEVEL", xl, "right"); value(pad(G.level, 2), xl, "right", PINK);
+  label("HEIGHT", xr, "right"); value(pad(GROUND - (cy + CH), 3), xr, "right", MINT);
+  ndMeter(g, xh + w6 + 14, xl - Math.max(w2, 24) - 12, y0 + 7, y0 + 30);
+  g.font = `400 6px ${ND_FONT}`; g.textBaseline = "alphabetic"; g.fillStyle = "#7d68b8";
+  g.textAlign = "left"; g.fillText(PACE_NEON[G.pace] + " · " + GRAV[G.grav] + " GRAVITY", 7, y0 + 40.5);
+  g.textAlign = "right"; g.fillStyle = rgba(PINK, 0.9); g.fillText("NEON DROP", xr, y0 + 40.5);
+}
+function renderNeon(alpha) {
+  ndBuild();
+  const g = sctx, kx = nd.kx, ky = nd.ky;
+  const L = (a, b) => (Math.abs(b - a) > 60 ? b : a + (b - a) * alpha);
+  const c = G.copter, w = G.wagon, cl = G.cloud, t = G.tick + alpha, since = G.tick - G.neonT0 + alpha;
+  const beat = Music.pulse(), pulse = beat === null ? 0.5 * Math.exp(-((t / 21.6) % 1) * 4.5) : beat;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalAlpha = 1; g.globalCompositeOperation = "source-over"; g.imageSmoothingEnabled = true;
+  g.drawImage(nd.sky, 0, 0);
+  g.setTransform(kx, 0, 0, ky, 0, 0);
+  g.globalCompositeOperation = "lighter";
+  for (const [x, y, p] of nd.twinkle) { const a = 0.5 + 0.5 * Math.sin(t * 0.07 + p); g.fillStyle = `rgba(255,230,250,${a * a * 0.9})`; g.fillRect(x - 0.6, y - 0.6, 1.2, 1.2); }
+  g.globalCompositeOperation = "source-over";
+  const rise = Math.pow(1 - Math.min(1, since / 80), 3) * 64;   // the sun comes up at the start of a show
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.drawImage(nd.sun.c, (W / 2 - nd.sun.pad) * kx, (HORIZON + 3 + rise - nd.sun.pad) * ky);
+  g.drawImage(nd.land, 0, LAND_TOP * ky);
+  g.setTransform(kx, 0, 0, ky, 0, 0);
+  const moving = G.phase === "play" && w.moving && w.stopT === 0;
+  ndGrid(g, G.gridT + (moving ? alpha * G.pace : 0), pulse);
+  const cx = L(c.px, c.x), cy = L(c.py, c.y), wx = L(w.px, w.x), ht = GROUND - (cy + CH);
+  g.globalCompositeOperation = "lighter";   // the glider's light on the floor
+  g.save(); g.translate(cx + 34, GROUND + 2); g.scale(1, 0.12);
+  const fr = 26 + ht * 0.05, fl = g.createRadialGradient(0, 0, 0, 0, 0, fr);
+  fl.addColorStop(0, rgba(CYAN, 0.32 * clamp(1 - ht / 300, 0.25, 1))); fl.addColorStop(1, rgba(CYAN, 0));
+  g.fillStyle = fl; g.beginPath(); g.arc(0, 0, fr, 0, TAU); g.fill();
+  g.restore();
+  g.globalCompositeOperation = "source-over";
+  for (const gm of G.groundies) ndGroundie(g, gm, L(gm.px, gm.x));
+  ndRig(g, wx, t, pulse);
+  ndRiders(g, wx, t);
+  const m = G.man;
+  if (m && m.state !== "hang") ndFall(g, L(m.px, m.x), L(m.py, m.y), m.f + alpha, m.state === "tumble");
+  ndCraft(g, cx, cy, t, c.dh, pulse);
+  if (m && m.state === "hang") ndHang(g, cx + HANG_X, cy + HANG_Y, t);
+  g.globalAlpha = 0.93 + 0.07 * Math.sin(t * 0.23);
+  ndBlit(g, nd.clouds[cl.i], L(cl.px, cl.x), cl.y);
+  g.globalAlpha = 1;
+  if (scored() && m && m.state === "fall" && !m.decided && m.cloud > 0) {
+    const mx = L(m.px, m.x) + 7, my = L(m.py, m.y);
+    ndText(g, "CLOUD +" + fmt(G.level * m.cloud * CLOUD_PTS), mx, m.inCloud ? Math.max(10, cl.y - 6) : Math.max(10, my - 9), 10, VIOLET);
+  }
+  ndParticles(g);
+  for (const p of G.pops) ndText(g, p.text, p.x, p.y + 8 - p.t * 0.5, 10, ndPopColor(p.text), p.t > p.life - 12 ? (p.life - p.t) / 12 : 1);
+  ndStick(g);
+  ndHUD(g, cy, pulse);
+  if (G.banner) ndBanner(g, G.banner);
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  if (since < 24) { g.fillStyle = `rgba(4,0,12,${1 - since / 24})`; g.fillRect(0, 0, screen.width, screen.height); }
+  g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
+}
+
 /* ------------------------------------------------------------------ layout */
 function layout() {
   const cs = getComputedStyle(app);
@@ -1930,7 +2711,7 @@ function updateStatus() {
   const g = GRAV[G.grav] + " GRAVITY";
   let line = G.mode === "show" || G.mode === "flash" ? "LEVEL " + G.level + " · " + PACE[G.pace] + " · " + g
     : G.mode === "drunk" ? "DRUNK · LEVEL " + G.level + " · " + g
-    : G.mode === "free" ? "FREE FLIGHT · " + PACE[G.pace] + " · " + g : "";
+    : G.mode === "neon" ? "NEON · LEVEL " + G.level + " · " + g : "";
   if (scored()) line += chaseLines(G.score, boardOf(G.mode));
   statusEl.textContent = line;
 }
@@ -1991,8 +2772,6 @@ function showSheet(kind, info = {}) {
     const touch = app.classList.contains("touch");
     const how = touch ? touchHelp() + " No sound? Turn off silent mode."
       : "Your mouse is the flight stick. Move it off the center of the screen and the copter flies that way. Click to drop. Arrow keys and the space bar work too.";
-    const records = [];
-    if (store.freeBest > 0) records.push(`<span>Best Free Flight streak <b>${store.freeBest}</b></span>`);
     if (info.board) titleBoard = info.board;
     const board = boardHtml(info.highlight, titleBoard, true);
     html = `
@@ -2002,16 +2781,15 @@ function showSheet(kind, info = {}) {
         <button class="mode primary" type="button" data-act="show"><span class="mode-name">STUNT SHOW</span><span class="mode-desc">The 1986 original. Land all five stuntmen to move up.</span></button>
         <button class="mode flash" type="button" data-act="flash"><span class="mode-name">FLASH FORWARD</span><span class="mode-desc">The same show, 40 years later, in full color.</span></button>
         <button class="mode" type="button" data-act="drunk"><span class="mode-name">DRUNK MODE</span><span class="mode-desc">Longer wagon, tipsy horse. Four of five moves you up.</span></button>
-        <button class="mode" type="button" data-act="free"><span class="mode-name">FREE FLIGHT</span><span class="mode-desc">No score, no game over. Just drop guys in the hay.</span></button>
+        <button class="mode neon" type="button" data-act="neon"><span class="mode-name">NEON DROP</span><span class="mode-desc">The same show as abstract neon art, set to synthwave.</span></button>
       </div>
-      ${records.length ? `<p class="meta">${records.join("")}</p>` : ""}
       <p class="note rules">Stay off the horse and the driver. Falling through a cloud earns a bonus.</p>
       <p class="note">${how}</p>
       <p class="credit">A tribute to StuntCopter by Duane Blehm, HomeTown Software, 1986. Same rules, new art and code.</p>`;
   } else if (kind === "paused") {
     html = `
       <h2 class="sheet-title">PAUSED</h2>
-      <p class="sheet-lede">${scored() ? "Level " + G.level + ", score " + fmt(G.score) + "." : G.hits + " in the hay so far."}</p>
+      <p class="sheet-lede">Level ${G.level}, score ${fmt(G.score)}.</p>
       <div class="row">
         <button class="btn primary" type="button" data-act="resume">RESUME</button>
         <button class="btn" type="button" data-act="menu">MENU</button>
@@ -2027,6 +2805,11 @@ function showSheet(kind, info = {}) {
       horse: "Your stuntman came down on the horse. Nobody's hurt, but the show is over.",
       quit: `You ended the show at level ${run.l}.`,
     };
+    if (G.mode === "neon") Object.assign(reasons, {
+      level: `You caught ${G.goodJumps} of 5. All five have to land in the basin to reach the next level.`,
+      driver: "Your cube came down on the core. It'll reboot, but the show is over.",
+      horse: "Your cube came down on the drive pod. No harm done, but the show is over.",
+    });
     const buttons = `
       <div class="row">
         <button class="btn primary" type="button" data-act="again">PLAY AGAIN</button>
@@ -2087,7 +2870,7 @@ sheet.addEventListener("click", e => {
   if (!b) return;
   Sound.unlock();
   const act = b.dataset.act;
-  if (act === "show" || act === "flash" || act === "free" || act === "drunk") startGame(act);
+  if (act === "show" || act === "flash" || act === "neon" || act === "drunk") startGame(act);
   else if (act === "again") startGame(scored() ? G.mode : "show");
   else if (act === "tab") {
     titleBoard = b.dataset.board === "lush" ? "lush" : "main";
@@ -2171,10 +2954,13 @@ function startGame(mode) {
   G.score = 0; G.slots = []; G.goodJumps = 0; G.hits = 0; G.streak = 0;
   G.overReason = ""; G.recordSet = false;
   G.drunk = { mult: 1, t: randInt(70, 140), stopT: 0, stopLen: 0, stops: 0, seen: [1] };
-  if (mode !== "free") titleBoard = boardOf(mode);
+  titleBoard = boardOf(mode);
   // Flash Forward opens in 1986 black and white, then flashes into color (see flashForward).
   G.flashT = 0; G.hdOn = false; G.flashFx = 0;
   if (mode === "flash") G.banner = { text: "1986", sub: "MAC PLUS GRAPHICS", t: 0, life: FLASH_AT - 10 };
+  // Neon Drop: the sun comes up, the floor starts rolling and the soundtrack starts from the top.
+  G.gridT = 0; G.neonT0 = G.tick; Music.step = 0; Music.intensity = 1;
+  if (mode === "neon") G.banner = { text: "NEON DROP", sub: "CATCH IT IN THE BLUE · AVOID THE RED", t: 0, life: 120 };
   nameCtx = null;
   G.nextManT = 14;
   input.mouse.active = false; input.touch = null; input.pad = null;
@@ -2184,7 +2970,7 @@ function startGame(mode) {
   updateStatus();
   Sound.unlock(); Sound.startRotor();
   requestWake();
-  announce(mode === "show" ? "Stunt show. Level 1." : mode === "flash" ? "Flash Forward. Level 1." : mode === "drunk" ? "Drunk Mode. Level 1." : "Free flight.");
+  announce(mode === "show" ? "Stunt show. Level 1." : mode === "flash" ? "Flash Forward. Level 1." : mode === "drunk" ? "Drunk Mode. Level 1." : "Neon Drop. Level 1.");
 }
 
 function pause() {
@@ -2387,7 +3173,7 @@ function boot(data) {
   syncNow();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(positionSheet).catch(() => {});
   requestAnimationFrame(frame);
-  window.baleOut = { G, tick, render, release, drop, startGame, layout, store, syncNow, updateStatus, get W() { return W; }, consts: { GROUND, HAY_TOP, HANG_X, HANG_Y, CH, WAG_W, RIGS, FLASH_AT } };
+  window.baleOut = { G, tick, render, Music, release, drop, startGame, layout, store, syncNow, updateStatus, get W() { return W; }, consts: { GROUND, HAY_TOP, HANG_X, HANG_Y, CH, WAG_W, RIGS, FLASH_AT } };
 }
 
 const hot = window.claude && window.claude.hot;

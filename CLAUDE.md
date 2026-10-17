@@ -13,8 +13,9 @@ these sessions cannot change Pages settings through the API).
 
 ## Modes
 
-- `G.mode` is `show` (Stunt Show), `flash` (Flash Forward), `drunk` (Drunk Mode), `free` (Free Flight) or
-  `attract` (the demo behind the title menu). `scored()` is true for the first three.
+- `G.mode` is `show` (Stunt Show), `flash` (Flash Forward), `drunk` (Drunk Mode), `neon` (Neon Drop) or
+  `attract` (the demo behind the title menu). `scored()` is true for all but `attract`. Neon Drop replaced Free
+  Flight; `store.freeBest` (its best streak) is still loaded and saved but no longer shown.
 - Flash Forward is the Stunt Show drawn in full color. `renderHD()` (the "Flash Forward" section of the game
   script) draws vector art straight onto the screen canvas at device resolution, and `hdBuild()` caches the
   scenery, clouds and hay cart for the current screen size. Each game starts in the 1-bit renderer and switches
@@ -22,6 +23,12 @@ these sessions cannot change Pages settings through the API).
 - The color art uses the same world units, positions and hit boxes as the sprites (`CLOUD_SHAPES` repeats the
   circles the cloud sprites and their slow-fall masks come from), so a change to a sprite's size or position needs
   the matching change in the `hd*` drawing functions.
+- Neon Drop is the Stunt Show as abstract neon art, drawn by `renderNeon()` (the "Neon Drop" sections) on the same
+  world and hit boxes: the light-catcher's blue basin is the hay (rel 1-42), its red core is the driver (42-52) and
+  its drive pod is the horse (52-82). The same rule applies to the `nd*` drawing functions as to the `hd*` ones.
+- `Music` synthesises Neon Drop's soundtrack live with a lookahead scheduler on Sound's AudioContext; in that mode
+  `Sound.startRotor()` starts it instead of the rotor and `stopRotor()` stops it. `NeonFx` holds the matching sound
+  effects, and `Music.renderTo()` renders the track on an OfflineAudioContext for testing.
 
 ## Scores
 
@@ -30,8 +37,8 @@ these sessions cannot change Pages settings through the API).
   `outbox` (entries not yet uploaded), `names`, `pending` (the running score of an unfinished show, with
   `k: "lush"` for Drunk Mode, saved after every landing and offered for a name on the next launch),
   `seeded` (this device's board has been queued for upload once).
-- Two boards share one database path: Drunk Mode entries have ids starting `lush-`; everything else (Stunt Show
-  and Flash Forward) is the main Hall of Fame. `pullBoard` fetches the top 200 by score and splits them.
+- Two boards share one database path: Drunk Mode entries have ids starting `lush-`; everything else (Stunt Show,
+  Flash Forward and Neon Drop) is the main Hall of Fame. `pullBoard` fetches the top 200 by score and splits them.
 - Drunk Mode uses `RIGS.long` (cart 50% longer, sprite `cart_long`) and `drunkStep()` for the tipsy horse;
   four of five stuntmen moves you up a level.
 - `SYNC_URL` near the top of the game script is the Firebase Realtime Database address for the shared
